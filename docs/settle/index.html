@@ -635,7 +635,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1008-71';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1008-72';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -3081,7 +3081,7 @@ function renderSettings(){
     : (shown.length? shown.map((e,i)=>`<div class="se"><span class="no">${i+1}</span><b>${esc(e.name)}</b><span class="sub">${esc(e.rank||'')}</span><span>${e.team?`<span class="tag">${esc(e.team)}</span>`:''}</span><span class="st ${e.status!=='재직'?'off':''}">${esc(e.status)}</span><span class="sub" style="overflow:hidden;text-overflow:ellipsis">${esc(e.email||'')}</span><span></span></div>`).join('') : `<div class="empty-row">${state.teamFilter?'이 팀에 등록된 사원이 없습니다.':'등록된 사원이 없습니다. 편집에서 추가하세요.'}</div>`))+`</div>`;
   const adm=`<div class="block">${secHead('Admin','관리')}`+(ed
     ? `<div class="sl"><span class="no">앱</span><input data-k="appName" value="${esc(S.appName||'정산 관리')}" placeholder="앱 이름"></div><div class="sub" style="padding:8px 4px 4px">편집자 (쉼표로 구분 · 여기 등록된 계정만 관리자 화면 사용)</div><textarea data-k="editors" rows="4" style="width:100%">${esc((S.editors||'').split(',').map(x=>x.trim()).filter(Boolean).join(',\n'))}</textarea>`
-    : `<div class="sl"><span class="no">앱</span><span>${esc(S.appName||'정산 관리')}</span></div><div class="sub" style="padding:8px 4px 2px">편집자</div>${(S.editors||'').split(',').map(x=>x.trim()).filter(Boolean).map((x,i)=>`<div class="sl"><span class="no">${i+1}</span><span style="word-break:break-all">${esc(x)}</span></div>`).join('')||'<div class="sub" style="padding:0 4px">(없음)</div>'}`)+`</div>`;
+    : `<div class="sl"><span class="no">앱</span><span>${esc(S.appName||'정산 관리')}</span></div><div class="sub" style="padding:8px 4px 2px">편집자</div>${(S.editors||'').split(',').map(x=>x.trim()).filter(Boolean).map((x,i)=>`<div class="sl"><span class="no">${i+1}</span><span style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em" title="${esc(x)}">${esc(x)}</span></div>`).join('')||'<div class="sub" style="padding:0 4px">(없음)</div>'}`)+`</div>`;
   $('scol1').innerHTML=th+adm; $('scol2').innerHTML=eh;
 }
 function teamPick(t){ state.teamFilter = (state.teamFilter===t) ? '' : t; renderSettings(); }
