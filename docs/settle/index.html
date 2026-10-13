@@ -636,7 +636,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1013-75';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1013-76';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1585,9 +1585,15 @@ function parseAdjWorkbook(wb){
   const rows=aoa.slice(1).filter(r=>/^\d+$/.test(String(r[0]||'').trim()));
   const total=rows.length;
   const base=rows.filter(r=>g(r,'정산종류')==='일반' && g(r,'개통상태')==='개통완료');
+  // 같은 고객 묶기: 이름이 같고 (연락처 앞 7자리 · 설치연락처 앞 7자리 · 가입서비스 중 하나라도 같으면) 한 고객
+  //  → 연락처 끝자리 오타(010-8873-123 / 010-8873-1234)나 마스킹(!!!!)이 있어도 회선이 갈라지지 않음
+  const par=base.map((_,i)=>i), find=i=>par[i]===i?i:(par[i]=find(par[i])), link={};
+  const p7=v=>{ const d=String(v||'').replace(/\D/g,''); return d.length>=7?d.slice(0,7):''; };
+  base.forEach((r,i)=>{ const nm=normName(g(r,'고객명')); const svc=g(r,'가입서비스').replace(/\s+/g,'');
+    [p7(g(r,'명의자연락처'))&&'p'+p7(g(r,'명의자연락처')), p7(g(r,'설치연락처'))&&'p'+p7(g(r,'설치연락처')), svc&&'s'+svc].filter(Boolean).forEach(x=>{ const k=nm+'|'+x; if(k in link) par[find(i)]=find(link[k]); else link[k]=i; }); });
   const groups={};
-  base.forEach(r=>{
-    const customer=g(r,'고객명'), phone=g(r,'명의자연락처'); const key=normName(customer)+'|'+phone.replace(/\D/g,'');
+  base.forEach((r,i)=>{
+    const customer=g(r,'고객명'), phone=g(r,'명의자연락처'); const key=normName(customer)+'#'+find(i);
     const product=g(r,'상품명'), amount=num(r[col('정산금액')]);
     const G=groups[key]=groups[key]||{customer,phone,emp:g(r,'유치자'),ppom:false,lines:[]};
     if(/뽐/.test(g(r,'접수경로'))) G.ppom=true;
@@ -1959,7 +1965,11 @@ async function indFile(file){
     // 기존 토스비 유지
     const prevToss={}, prevMan={}; (R.rows||[]).forEach(r=>{ prevToss[indKey(r.emp)]=r.toss; prevMan[indKey(r.emp)]=r.manual; });
     rows.forEach(r=>{ if(prevToss[indKey(r.emp)]) r.toss=prevToss[indKey(r.emp)]; r.manual=prevMan[indKey(r.emp)]||{}; });
-    R.rows=rows; R.summary={...(R.summary||{}),total,file:file.name,rate:(R.summary&&R.summary.rate)||IND_RATE,extras:indExtras(R)}; R.pendingDetails=details;
+    R.rows=rows; R.summary={...(R.summary||{}),total,file:file.name,rate:(R.summary&&R.summary.rate)||IND_RATE,extras:indExtras(R)}; R.pendingDetails=details; delete R.summary.refundFrom;
+    // 파일에 '환수' 행이 없으면 환수발생 메뉴(26년 이후 개통 = 개별 반영)의 금액으로 환수차감을 채움
+    const occ=((state.ind.lookups||{}).occurRefund||{})[reg];
+    if(occ && Object.keys(occ).length && !rows.some(r=>r.refund)){ const seen={}; rows.forEach(r=>{ const x=occ[indKey(r.emp)]; if(x){ r.refund=x.amount; seen[indKey(r.emp)]=1; } });
+      Object.keys(occ).filter(k=>!seen[k]).forEach(k=>rows.push({emp:occ[k].emp,fee:0,cost:0,extra:0,refund:occ[k].amount,toss:0,n:0,nIlban:0,note:'',manual:{}})); R.summary.refundFrom='환수발생'; }
     state.indDetails={}; details.forEach(d=>{ const k=reg+'|'+indKey(d['유치자']); (state.indDetails[k]=state.indDetails[k]||[]).push(d); });
     state.indEmp=null; renderIndiv();
     toast(`${reg} ${total}행 읽음 → 유치자 ${rows.length}명`);
@@ -2002,6 +2012,7 @@ function renderIndiv(){
     l+=`<div class="pub ${cf?'lock':(pb?'on':'')}">`+(ed
       ? `<label class="chk"><input type="checkbox" ${pb?'checked':''} onchange="indPublish(this.checked)"><b>사원에게 공개</b> <span class="sub">— 체크한 달만 사원·팀장 계정에서 조회 가능 (팀별 정산서·추가매출1·2도 같이 공개)</span></label>`
       : `<div class="pubrow"><b>${cf?'🔒 확인완료':(pb?'✓ 사원 공개 중':'사원 비공개')}</b>${state.editor?`<span class="pubbtns"><button class="editbtn" onclick="indFlag('published',${pb?'false':'true'})">${pb?'공개 끄기':'공개 켜기'}</button><button class="editbtn ${cf?'':'pri'}" onclick="indConfirm(${cf?'false':'true'})">${cf?'확인완료 해제':'확인완료'}</button></span>`:''}</div><div class="sub">${cf?'이 지역·월은 마무리됨 — 편집 불가, 다른 메뉴 업로드 시 경고':(pb?'사원은 본인 정산서·추가매출, 팀장은 팀 전체·팀별 정산서·추가매출을 볼 수 있습니다':'공개 켜기를 누르면 사원·팀장이 볼 수 있습니다')}</div>`)+`</div>`; }
+  if(R.summary&&R.summary.refundFrom&&R.rows.some(r=>r.refund)) l+=`<div class="sub" style="padding:2px 4px 10px">※ 이 파일에 '환수' 행이 없어 환수차감은 <b>환수발생</b> 메뉴(26년 이후 개통 · 개별 반영)에서 가져왔습니다.</div>`;
   if(ed||!R.summary) l+=`<div class="upl" id="indDrop" ${state.editor?'':'style="display:none"'}><b>${reg}</b> 정산리스트 엑셀 <label style="cursor:pointer"><b><u>파일 선택</u></b><input type="file" accept=".xlsx,.xls" style="display:none" onchange="indFile(this.files[0]);this.value=''"></label><div class="sub" style="margin-top:4px">추가매출·와이즐리와 같은 파일${R.summary?' · 다시 올리면 덮어씀':''}</div></div>`;
   l+=`<div class="block">${secHead('Salespeople',`${reg} 유치자`,rows.length)}`;
   if(!rows.length) l+=`<div class="empty-row">엑셀을 업로드하면 유치자 목록이 표시됩니다.</div>`;
