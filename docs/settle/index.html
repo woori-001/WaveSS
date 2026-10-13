@@ -636,7 +636,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1008-73';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1012-74';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1052,18 +1052,20 @@ const offBucket = t => { const r=region(t); return r ? r+' '+OFF : OFF; };      
 const empBucket = e => (!e || e.status==='재직') ? (e?.team||'') : offBucket(e.team);
 function teamOrder(){
   const regs=[]; state.settings.teams.forEach(t=>{ const r=region(t); if(r&&!regs.includes(r)) regs.push(r); });
-  return state.settings.teams.concat(regs.map(r=>r+' '+OFF));
+  const all=state.settings.teams.concat(regs.map(r=>r+' '+OFF));
+  return state.role==='emp'&&state.me ? all.filter(t=>region(t)===state.me.region||t===state.me.region+' '+OFF) : all;
 }
+const scopeRegs = () => state.role==='emp'&&state.me ? [state.me.region] : ADJ_REGIONS;   // 팀장 화면은 자기 지역만
 function sumKeys(sums){ const base=teamOrder(); return base.concat(Object.keys(sums).filter(k=>!base.includes(k)&&sums[k])); }
 async function loadPenalty(month){
   try{
     let d=state.penCache[month];
-    if(!d){ d=await api('getPenalty', month); state.penCache[month]=d; }
+    if(!d){ d=state.role==='emp' ? (await meFetch(month)).refund.penalty : await api('getPenalty', month); state.penCache[month]=d; }
     state.pen=clone(d); state.penSaved=clone(d); state.penMonths=d.months||state.penMonths; state.viewMonth=month; state.year=+month.slice(0,4);
     setEdit(false); renderPenalty(); renderPicker();
   }catch(e){ toast(e.message, true); }
 }
-function penRegionHtml(sums){ const regs=[]; state.settings.teams.forEach(t=>{ const r=region(t); if(r&&!regs.includes(r)) regs.push(r); });
+function penRegionHtml(sums){ const regs=[]; state.settings.teams.forEach(t=>{ const r=region(t); if(r&&!regs.includes(r)&&scopeRegs().includes(r)) regs.push(r); });
   return regs.map(r=>{ const v=Object.keys(sums).filter(k=>region(k)===r||k===r+' '+OFF).reduce((a,k)=>a+(sums[k]||0),0); return `<div class="sum reg"><span><b>${esc(r)} 총합</b> <span class="sub">재직 + 퇴/휴직</span></span><span class="amt ${v?'':'zero'}">${v?won(v):'–'}</span></div>`; }).join(''); }
 function penSummary(rows){
   const sums={}; teamOrder().forEach(t=>sums[t]=0); let total=0;
@@ -1096,7 +1098,7 @@ function renderPenalty(){
   const sumHtml=`<div class="block">${secHead('Summary','팀별 차감 합계')}${sumKeys(sums).map(t=>`<div class="sum"><span class="tag">${esc(t)}</span><span class="amt ${sums[t]?'':'zero'}">${sums[t]?won(sums[t]):'–'}</span></div>`).join('')}${penRegionHtml(sums)}<div class="sum total"><b>전체 합계</b><span class="amt">${won(total)}</span></div></div>`;
   const head=`<div class="pl hd"><span>팀</span><span>유치자</span><span>통신사</span><span>고객명</span><span>서번</span><span style="text-align:right">차감금액</span><span>비고</span></div>`;
   const list=ed ? rows.map((r,i)=>penRowEdit(r,i)).join('')+`<div class="addrow"><button class="editbtn" onclick="penAdd()">+ 행 추가</button></div>`
-               : (rows.length? rows.map(penRowView).join('') : `<div class="empty-row">등록된 차감 건이 없습니다.</div>`);
+               : (rows.length? rows.map(penRowView).join('') : `<div class="empty-row">${state.pen.hidden?`${esc(state.pen.month)} 채증 패널티는 아직 공개되지 않았습니다.`:'등록된 차감 건이 없습니다.'}</div>`);
   const listHtml=`<div class="block">${secHead('Penalty list','차감 리스트',rows.length)}${ed?`<div class="pl hd"><span>팀</span><span>유치자</span><span>통신사</span><span>고객명</span><span>서번</span><span style="text-align:right">차감금액</span><span>비고</span><span></span></div>`:head}${list}</div>`;
   $('pcol1').innerHTML=sumHtml; $('pcol2').innerHTML=listHtml;
   if(ed) $('pcol2').querySelectorAll('input[data-k=amount]').forEach(f=>f.addEventListener('input',()=>{ syncPenDom(); const {sums,total}=penSummary(state.pen.rows); $('pcol1').innerHTML=`<div class="block">${secHead('Summary','팀별 차감 합계')}${sumKeys(sums).map(t=>`<div class="sum"><span class="tag">${esc(t)}</span><span class="amt ${sums[t]?'':'zero'}">${sums[t]?won(sums[t]):'–'}</span></div>`).join('')}${penRegionHtml(sums)}<div class="sum total"><b>전체 합계</b><span class="amt">${won(total)}</span></div></div>`; }));
@@ -2358,7 +2360,7 @@ const RF_RATE = 5, RF_MGMT = /환수관리/, RF_CHEONAN_TO = '조광연 부장';
 async function loadRefund(month){
   try{
     let d=state.rfCache[month];
-    if(!d){ d=await api('getRefund', month); state.rfCache[month]=d; }
+    if(!d){ d=state.role==='emp' ? (await meFetch(month)).refund.refund : await api('getRefund', month); state.rfCache[month]=d; }
     state.rf=clone(d); state.rfSaved=clone(d); state.rfMonths=d.months||state.rfMonths||[]; state.viewMonth=month; state.year=+month.slice(0,4);
     setEdit(false); renderRefund(); renderPicker();
   }catch(e){ toast(e.message, true); }
@@ -2433,7 +2435,7 @@ function renderRefund(){
     +`<div class="osum"><div class="ot"><b>환수완료 건</b></div><div class="ov"><span class="amt">${rows.length}건</span></div></div>`
     +sumRow(`${rfCatTag('개별')} 개별 보정`,c.adjRows,c.adjTotal)
     +sumRow(`${rfCatTag('팀결산')} 팀결산 보정`,c.teamRows,c.teamTotal)
-    +ADJ_REGIONS.map(rg=>{ const l=c.teamRows.filter(r=>rfRegionOf(r.dept)===rg); return `<div class="osum subr"><div class="ot"><span class="sub">└ ${rg} 팀결산</span></div><div class="ov"><span class="sub">${l.length}건</span><span class="amt ${l.length?'':'zero'}">${W(l.reduce((a,r)=>a+r.paid,0))}</span></div></div>`; }).join('')
+    +scopeRegs().map(rg=>{ const l=c.teamRows.filter(r=>rfRegionOf(r.dept)===rg); return `<div class="osum subr"><div class="ot"><span class="sub">└ ${rg} 팀결산</span></div><div class="ov"><span class="sub">${l.length}건</span><span class="amt ${l.length?'':'zero'}">${W(l.reduce((a,r)=>a+r.paid,0))}</span></div></div>`; }).join('')
     +sumRow(`${rfCatTag('제외')} 팀결산 제외`,c.outRows,c.outTotal,'zero')
     +sumRow(`5% 인센`,c.incRows,c.incTotal)
     +`<div class="osum"><div class="ot"><span class="sub">환수관리팀 ${c.mgmt.length}건 · 환수자 없음 ${c.noCol.length}건 · 수동 제외 ${c.exAdj.length}건</span></div></div>`
@@ -2446,12 +2448,12 @@ function renderRefund(){
   const hd=`<div class="rl hd"><span>고객명</span><span>개통일</span><span>완료일</span><span>환수자</span><span class="r">입금액</span>${ed?'<span></span>':''}</div>`;
   const live=rows.map((r,i)=>({...r,_i:i})).filter(r=>!RF_MGMT.test(r.collector));
   let h=`<div class="block ${ed?'rled':''}">${secHead('Revenue adjustment','구분 · 유치자별 매출보정',c.adjRows.length+c.teamRows.length)}`;
-  if(!F.summary) h+=`<div class="empty-row">엑셀을 업로드하면 계산됩니다.</div>`;
+  if(!F.summary) h+=`<div class="empty-row">${F.hidden?`${esc(m)} 환수완료는 아직 공개되지 않았습니다.`:state.editor?'엑셀을 업로드하면 계산됩니다.':'등록된 환수완료 건이 없습니다.'}</div>`;
   else {
     Object.keys(RF_CATS).forEach(cat=>{ const list=live.filter(r=>r.cat===cat); if(!list.length) return; const on=list.filter(r=>!r.exAdj&&cat!=='제외');
       h+=`<div class="ag3 dept"><span>${rfCatTag(cat)} <b>${RF_CATS[cat].label}</b></span><span class="r">${on.length}</span><span class="amt ${cat==='제외'?'zero':''}">${cat==='제외'?W(list.reduce((a,r)=>a+r.paid,0)):won(on.reduce((a,r)=>a+r.paid,0))}</span></div>`;
-      const regionsOf = cat==='팀결산' ? ADJ_REGIONS.filter(rg=>list.some(r=>rfRegionOf(r.dept)===rg)).concat(list.some(r=>!ADJ_REGIONS.includes(rfRegionOf(r.dept)))?['기타']:[]) : [null];
-      regionsOf.forEach(rg=>{ const rlist = rg===null ? list : list.filter(r=> rg==='기타' ? !ADJ_REGIONS.includes(rfRegionOf(r.dept)) : rfRegionOf(r.dept)===rg); const ron=rlist.filter(r=>!r.exAdj);
+      const regionsOf = cat==='팀결산' ? scopeRegs().filter(rg=>list.some(r=>rfRegionOf(r.dept)===rg)).concat(list.some(r=>!scopeRegs().includes(rfRegionOf(r.dept)))?['기타']:[]) : [null];
+      regionsOf.forEach(rg=>{ const rlist = rg===null ? list : list.filter(r=> rg==='기타' ? !scopeRegs().includes(rfRegionOf(r.dept)) : rfRegionOf(r.dept)===rg); const ron=rlist.filter(r=>!r.exAdj);
       if(rg!==null) h+=`<div class="ag3 subr"><span><b>${esc(rg)} 팀결산</b></span><span class="r">${ron.length}</span><span class="amt">${won(ron.reduce((a,r)=>a+r.paid,0))}</span></div>`;
       adjGroups(rlist).forEach(gp=>{ const items=gp.idx.map(j=>rlist[j]), onI=items.filter(r=>!r.exAdj), e=findEmp(gp.emp), key=cat+'|'+(rg||'')+'|'+gp.emp, open=ed||O.emp[key];
         h+=`<div class="ag3 pick ${open?'open':''}" onclick="rfToggle('emp','${esc(key)}')"><span><span class="caret">${open?'▾':'▸'}</span>${e&&empBucket(e)?`<span class="tag">${esc(empBucket(e))}</span> `:''}<b>${esc(e?empLabel(e):gp.emp)}</b>${e?'':' <span class="warn" style="font-size:12px;color:var(--danger)">미등록</span>'}${cat!=='제외'&&items.length-onI.length?` <span class="sub">제외 ${items.length-onI.length}</span>`:''}</span><span class="r">${cat==='제외'?items.length:onI.length}</span><span class="amt ${cat==='제외'?'zero':''}">${W(cat==='제외'?items.reduce((a,r)=>a+r.paid,0):onI.reduce((a,r)=>a+r.paid,0))}</span></div>`;
@@ -2463,7 +2465,7 @@ function renderRefund(){
   $('rcol2').innerHTML=h; h='';
   // 오른쪽 2: 환수자별 5% 인센
   h+=`<div class="block">${secHead('Collector incentive','환수자별 5% 인센',c.incRows.length)}`;
-  if(!F.summary) h+=`<div class="empty-row">엑셀을 업로드하면 계산됩니다.</div>`;
+  if(!F.summary) h+=`<div class="empty-row">${F.hidden?'아직 공개되지 않았습니다.':state.editor?'엑셀을 업로드하면 계산됩니다.':'해당 건이 없습니다.'}</div>`;
   else if(!c.incRows.length) h+=`<div class="empty-row">인센 대상이 없습니다.</div>`;
   else {
     const byCol={}; live.forEach(r=>{ if(!r.collector) return; const to=/천안/.test(r.dept)?RF_CHEONAN_TO:r.collector; (byCol[to]=byCol[to]||[]).push(r); });
@@ -2522,12 +2524,12 @@ function exportRefundXlsx(){
   // 요약
   const W=n=>Number(n)||0;
   const sumRows=[['항목','건수','금액'],['개별 보정 (26년 개통)',c.adjRows.length,W(c.adjTotal)]];
-  ADJ_REGIONS.forEach(rg=>{ const l=c.teamRows.filter(r=>rfRegionOf(r.dept)===rg); sumRows.push([`팀결산 보정 · ${rg}`,l.length,l.reduce((a,r)=>a+r.paid,0)]); });
+  scopeRegs().forEach(rg=>{ const l=c.teamRows.filter(r=>rfRegionOf(r.dept)===rg); sumRows.push([`팀결산 보정 · ${rg}`,l.length,l.reduce((a,r)=>a+r.paid,0)]); });
   sumRows.push(['팀결산 제외 (이전개통 퇴사자)',c.outRows.length,W(c.outTotal)],['5% 인센',c.incRows.length,W(c.incTotal)],['환수관리팀 (제외)',c.mgmt.length,c.mgmt.reduce((a,r)=>a+r.paid,0)],['수동 제외',c.exAdj.length,c.exAdj.reduce((a,r)=>a+r.paid,0)]);
   const wsS=XLSX.utils.aoa_to_sheet([[`${m} 환수완료 요약`],[]].concat(sumRows)); xlsxNumFmt(wsS); wsS['!cols']=[{wch:30},{wch:8},{wch:14}];
   XLSX.utils.book_append_sheet(wb,wsS,'요약');
   XLSX.utils.book_append_sheet(wb,mk(c.adjRows.map(r=>row(r,r.paid,'개별 보정'))),'개별보정');
-  ADJ_REGIONS.forEach(rg=>{ const l=c.teamRows.filter(r=>rfRegionOf(r.dept)===rg); XLSX.utils.book_append_sheet(wb,mk(l.map(r=>row(r,r.paid,'팀결산 보정'))),`팀결산_${rg}`); });
+  scopeRegs().forEach(rg=>{ const l=c.teamRows.filter(r=>rfRegionOf(r.dept)===rg); XLSX.utils.book_append_sheet(wb,mk(l.map(r=>row(r,r.paid,'팀결산 보정'))),`팀결산_${rg}`); });
   XLSX.utils.book_append_sheet(wb,mk(c.outRows.map(r=>row(r,0,'팀결산 제외','이전개통 퇴사자'))),'팀결산제외');
   const inc=c.incRows.map(r=>[r.incTo].concat(row(r,r.inc,'5% 인센')));
   const wsI=XLSX.utils.aoa_to_sheet([['인센 귀속'].concat(HEAD)].concat(inc)); xlsxNumFmt(wsI); wsI['!cols']=[{wch:12}].concat(HEAD.map(h=>({wch:h.length>5?16:11})));
@@ -2542,7 +2544,7 @@ async function exportRefundPng(){
   if(!state.rf) return; if(state.edit){ toast('저장 후 내보내세요.', true); return; }
   const F=state.rf, m=F.month; const doc=$('doc'); if(!F.summary){ toast('자료가 없습니다.', true); return; }
   doc.innerHTML=`<div style="display:flex;align-items:baseline;gap:12px;margin-bottom:22px"><span style="font-size:46px;font-weight:200;color:var(--ink);line-height:1">${esc(m.slice(5))}</span><span style="display:flex;flex-direction:column;line-height:1.25"><span class="cap" style="letter-spacing:.22em">${ENF[+m.slice(5)-1]} ${esc(m.slice(0,4))}</span><span style="font-size:13px;color:var(--tx2)">${esc(m)} 환수완료 · 매출보정 / 5% 인센</span></span></div>`
-    +ADJ_REGIONS.map(reg=>{ const t=rfSummaryHtml(F.rows||[],reg,m); return t?`<div class="block"><div class="apt" style="font-size:15px">${esc(reg)}</div>${t}</div>`:''; }).join('');
+    +scopeRegs().map(reg=>{ const t=rfSummaryHtml(F.rows||[],reg,m); return t?`<div class="block"><div class="apt" style="font-size:15px">${esc(reg)}</div>${t}</div>`:''; }).join('');
   doc.classList.add('capture'); doc.style.width='1000px';
   try{
     await new Promise(res=>setTimeout(res,50));
@@ -2560,10 +2562,10 @@ async function exportRefundPng(){
 async function loadOccur(month){
   try{
     let d=state.roCache[month];
-    if(!d){ d=await api('getOccur', month); state.roCache[month]=d; }
-    d.regions=d.regions||{}; ADJ_REGIONS.forEach(r=>{ d.regions[r]=d.regions[r]||{rows:[],summary:null,updatedAt:'',updatedBy:''}; });
+    if(!d){ d=state.role==='emp' ? (await meFetch(month)).refund.occur : await api('getOccur', month); state.roCache[month]=d; }
+    d.regions=d.regions||{}; scopeRegs().forEach(r=>{ d.regions[r]=d.regions[r]||{rows:[],summary:null,updatedAt:'',updatedBy:''}; });
     state.ro=clone(d); state.roSaved=clone(d); state.roMonths=d.months||state.roMonths||[]; state.viewMonth=month; state.year=+month.slice(0,4);
-    if(!ADJ_REGIONS.includes(state.roRegion)) state.roRegion=ADJ_REGIONS[0];
+    if(!scopeRegs().includes(state.roRegion)) state.roRegion=scopeRegs()[0];
     setEdit(false); renderOccur(); renderPicker();
   }catch(e){ toast(e.message, true); }
 }
@@ -2607,13 +2609,13 @@ function renderOccur(){
   $('dh_diff').style.display='none';
   $('dh_saved').textContent=R.updatedAt?`${reg} 마지막 저장 ${R.updatedAt} · ${String(R.updatedBy||'').split('@')[0]}`:'';
   const W=n=>(Number(n)||0).toLocaleString('ko-KR'); const cats=roCats(R);
-  let l=`<div class="block">${secHead('Region','지역 선택')}<div class="rtabs">`+ADJ_REGIONS.map(r=>{ const X=A.regions[r]; return `<button class="rt ${r===reg?'on':''}" onclick="roRegionPick('${r}')"><b>${r}</b><span class="sub">${X.summary?`${X.rows.length}건 · ${W(X.rows.reduce((a,x)=>a+x.amount,0))}`:'미업로드'}</span></button>`; }).join('')+`</div></div>`;
+  let l=`<div class="block">${secHead('Region','지역 선택')}<div class="rtabs">`+scopeRegs().map(r=>{ const X=A.regions[r]; return `<button class="rt ${r===reg?'on':''}" onclick="roRegionPick('${r}')"><b>${r}</b><span class="sub">${X.summary?`${X.rows.length}건 · ${W(X.rows.reduce((a,x)=>a+x.amount,0))}`:'미업로드'}</span></button>`; }).join('')+`</div></div>`;
   if(ed||!R.summary) l+=`<div class="upl" id="roDrop" ${state.editor?'':'style="display:none"'}><b>${reg}</b> 환수리스트 엑셀 <label style="cursor:pointer"><b><u>파일 선택</u></b><input type="file" accept=".xlsx,.xls" style="display:none" onchange="roFile(this.files[0]);this.value=''"></label><div class="sub" style="margin-top:4px">시트별로 구분해서 읽습니다 ('전체' 시트는 건너뜀)${R.summary?' · 다시 올리면 덮어씀':''}</div></div>`;
   l+=`<div class="block">${secHead('Summary',`${reg} 요약`)}`+cats.map(c=>{ const cr=rows.filter(r=>r.cat===c), t=cr.reduce((a,r)=>a+r.amount,0); return `<div class="osum"><div class="ot"><b>${esc(roShort(c))}</b>${roTag(c)?`<span class="rtag a">${esc(roTag(c))}</span>`:''}</div><div class="ov"><span class="sub">${cr.length}건</span><span class="amt ${t<0?'neg':''} ${cr.length?'':'zero'}">${W(t)}</span></div></div>`; }).join('')
     +`<div class="osum tot"><div class="ot"><b>전체</b></div><div class="ov"><span class="sub">${rows.length}건</span><span class="amt">${W(rows.reduce((a,r)=>a+r.amount,0))}</span></div></div>`+(R.summary&&R.summary.file?`<div class="sub" style="padding-top:8px">파일: ${esc(R.summary.file)}</div>`:'')+`</div>`;
   $('ocol1').innerHTML=l;
   let h='', h3='';
-  if(!R.summary) h=`<div class="empty-row">엑셀을 업로드하면 시트별 환수 리스트가 표시됩니다.</div>`;
+  if(!R.summary) h=`<div class="empty-row">${A.hidden?`${esc(m)} 환수발생은 아직 공개되지 않았습니다.`:state.editor?'엑셀을 업로드하면 시트별 환수 리스트가 표시됩니다.':'등록된 환수발생 건이 없습니다.'}</div>`;
   const blocks=[];
   cats.forEach(c=>{ let h=''; const list=rows.map((r,i)=>({...r,_i:i})).filter(r=>r.cat===c); if(!list.length&&!R.summary) return;
     h+=`<div class="block">${secHead(esc(roTag(c)||'Refund'),`${esc(roShort(c))}`,list.length)}`;
@@ -2970,6 +2972,9 @@ function initEmp(r){
   btn.onclick=()=>meView('me'); anchor.before(btn);
   if(r.me.leader){ const b2=document.createElement('button'); b2.className='item'; b2.dataset.view='meteam'; b2.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><circle cx="17" cy="9" r="2.5"/><path d="M2 20a7 7 0 0 1 14 0M15 20a5 5 0 0 1 7-4.5"/></svg>팀별 정산서'; b2.onclick=()=>meView('meteam'); anchor.before(b2); }
   const b3=document.createElement('button'); b3.className='item'; b3.dataset.view='mebonus'; b3.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M5 8h9a3 3 0 0 1 0 6H6a3 3 0 0 0 0 6h13"/></svg>추가매출'; b3.onclick=()=>meView('mebonus'); anchor.before(b3);
+  if(r.me.leader){ const dv2=document.createElement('div'); dv2.className='divider'; anchor.before(dv2);
+    const lb=document.createElement('div'); lb.className='sub'; lb.style.cssText='padding:6px 12px 2px;font-size:11px;letter-spacing:.06em'; lb.textContent='환수 · 패널티'; anchor.before(lb);
+    [['penalty','채증 패널티'],['occur','환수발생'],['refund','환수완료']].forEach(([v,t])=>{ const b=document.createElement('button'); b.className='item sub'; b.dataset.view=v; b.textContent=t; b.onclick=()=>meView(v); anchor.before(b); }); }
   state.myBonusMonths=r.bonusMonths||[]; state.myBonusCache={}; state.myBonusOpen={};
   $('editBtns').style.display='none'; document.querySelectorAll('[data-edit]').forEach(el=>{ el.disabled=true; if(el.id==='drop'||el.closest('#viewBtns')) el.style.display='none'; }); $('btnImages').style.display='none';
   document.querySelectorAll('.menu button, .menu .sep').forEach(el=>el.style.display='none'); document.querySelector('.more').style.display='none';
@@ -2981,7 +2986,7 @@ function initEmp(r){
 /* 포털: 한 달치(정산서·추가매출·정산기준)를 한 번에 받아 캐시 → 메뉴 이동 시 서버 호출 없음 */
 async function meFetch(month){
   state.meAll=state.meAll||{}; if(state.meAll[month]) return state.meAll[month];
-  const p=api('getMyAll', month).then(b=>{ state.myCache[month+'|']=b.statement; state.myBonusCache[month]=b.bonus; if(b.criteria){ state.critCache=state.critCache||{}; state.critCache[month]=b.criteria; } return b; }).catch(e=>{ delete state.meAll[month]; throw e; });
+  const p=api('getMyAll', month).then(b=>{ state.myCache[month+'|']=b.statement; state.myBonusCache[month]=b.bonus; if(b.criteria){ state.critCache=state.critCache||{}; state.critCache[month]=b.criteria; } if(!b.refund) b.refund={penalty:{month,rows:[],hidden:true,months:[]},occur:{month,regions:{},hidden:true,months:[]},refund:{month,rows:[],summary:null,hidden:true,months:[]}}; return b; }).catch(e=>{ delete state.meAll[month]; throw e; });
   state.meAll[month]=p; return p;
 }
 async function loadMe(month, emp){
@@ -2992,6 +2997,8 @@ async function loadMe(month, emp){
   }catch(e){ toast(e.message, true); }
 }
 function meView(v){ state.view=v; document.querySelectorAll('.side .item').forEach(b=>b.classList.toggle('on', b.dataset.view===v)); const m=state.viewMonth||thisMonth();
+  $('btnXlsx').style.display=(v==='penalty'||v==='occur')?'none':'';
+  const RG={penalty:'grid2',occur:'gridO',refund:'gridR'}; if(RG[v]){ meShowGrid(RG[v]); const mm=state.myBonusMonths.includes(m)?m:(state.myBonusMonths[0]||m); if(v==='penalty') loadPenalty(mm); else if(v==='occur') loadOccur(mm); else loadRefund(mm); return; }
   if(v==='me') loadMe(m); else if(v==='meteam') { if(state.my&&state.my.month===m) renderMeTeam(); else loadMe(m); } else if(v==='mecrit') loadMeCrit(m); else loadMeBonus(m); }
 async function loadMeCrit(month){
   try{ state.critCache=state.critCache||{}; let d=state.critCache[month]; if(!d){ d=(await meFetch(month)).criteria; } if(!d) throw new Error('권한이 없습니다.'); state.myCritMonths=d.months||[]; state.months=state.myCritMonths.map(x=>({month:x})); state.cache=state.cache||{}; state.edit=false; state.exportSel=null;
