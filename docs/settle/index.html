@@ -636,7 +636,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1012-74';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1013-75';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1419,12 +1419,12 @@ async function exportSkyPng(){
 }
 
 /* ══════════ 업셀링 ══════════ */
-const upRegions = () => { const rs=[]; state.settings.teams.forEach(t=>{ const r=region(t); if(r&&!rs.includes(r)) rs.push(r); }); return rs; };
+const upRegions = () => { const rs=[]; state.settings.teams.forEach(t=>{ const r=region(t); if(r&&!rs.includes(r)&&(state.role!=='emp'||!state.me||r===state.me.region)) rs.push(r); }); return rs; };
 const teamsOfRegion = r => state.settings.teams.filter(t=>region(t)===r);
 async function loadUp(month){
   try{
     let d=state.upCache[month];
-    if(!d){ d=await api('getUp', month); state.upCache[month]=d; }
+    if(!d){ d=state.role==='emp' ? (await meFetch(month)).refund.up : await api('getUp', month); state.upCache[month]=d; }
     // 지역별 설정(방식/팀) 복원
     d.cfg = d.cfg || {};
     upRegions().forEach(r=>{ const saved=d.rows.filter(x=>x.region===r); const ts=teamsOfRegion(r);
@@ -1512,7 +1512,7 @@ function renderUp(){
   let h='';
   if(ed||!det.length) h+=`<div class="upl" id="upDrop" ${state.editor?'':'style="display:none"'}>엑셀 파일을 여기에 끌어다 놓거나 <label style="cursor:pointer"><b><u>파일 선택</u></b><input type="file" accept=".xlsx,.xls" style="display:none" onchange="upFile(this.files[0]);this.value=''"></label><div class="sub" style="margin-top:4px">업셀링 정산리스트(.xlsx) — 시트가 나뉘어 있어도 전부 합쳐서 협력점·유치자로 지역을 나눕니다${det.length?' · 다시 올리면 현재 내용을 덮어씁니다':''}</div></div>`;
   h+=`<div class="block">${secHead('Team allocation','팀결산 반영')}<div class="sk hd"><span>반영 팀</span><span class="r">비율</span><span class="r">건수</span><span class="r">결산 반영금액</span></div>`;
-  h+= U.rows.length ? U.rows.map(r=>`<div class="sk"><span><span class="tag">${esc(r.team)}</span>${r.note?` <span class="sub">${esc(r.note)}</span>`:''}</span><span class="r">${r.ratio}%</span><span class="r">${r.count}</span><span class="amt">${won(r.amount)}</span></div>`).join('')+`<div class="sk tot"><span>합계</span><span></span><span class="r">${det.length}</span><span class="amt">${won(U.rows.reduce((a,r)=>a+r.amount,0))}</span></div>` : `<div class="empty-row">엑셀을 업로드하면 반영 금액이 계산됩니다.</div>`;
+  h+= U.rows.length ? U.rows.map(r=>`<div class="sk"><span><span class="tag">${esc(r.team)}</span>${r.note?` <span class="sub">${esc(r.note)}</span>`:''}</span><span class="r">${r.ratio}%</span><span class="r">${r.count}</span><span class="amt">${won(r.amount)}</span></div>`).join('')+`<div class="sk tot"><span>합계</span><span></span><span class="r">${det.length}</span><span class="amt">${won(U.rows.reduce((a,r)=>a+r.amount,0))}</span></div>` : `<div class="empty-row">${U.hidden?`${esc(U.month)} 업셀링은 아직 공개되지 않았습니다.`:state.editor?'엑셀을 업로드하면 반영 금액이 계산됩니다.':'해당 건이 없습니다.'}</div>`;
   h+=`</div>`;
   if(det.length){
     // 유치자별 (검토용)
@@ -2972,6 +2972,7 @@ function initEmp(r){
   btn.onclick=()=>meView('me'); anchor.before(btn);
   if(r.me.leader){ const b2=document.createElement('button'); b2.className='item'; b2.dataset.view='meteam'; b2.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.5"/><circle cx="17" cy="9" r="2.5"/><path d="M2 20a7 7 0 0 1 14 0M15 20a5 5 0 0 1 7-4.5"/></svg>팀별 정산서'; b2.onclick=()=>meView('meteam'); anchor.before(b2); }
   const b3=document.createElement('button'); b3.className='item'; b3.dataset.view='mebonus'; b3.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M5 8h9a3 3 0 0 1 0 6H6a3 3 0 0 0 0 6h13"/></svg>추가매출'; b3.onclick=()=>meView('mebonus'); anchor.before(b3);
+  if(r.me.leader){ const bu=document.createElement('button'); bu.className='item'; bu.dataset.view='up'; bu.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg>업셀링'; bu.onclick=()=>meView('up'); anchor.before(bu); }
   if(r.me.leader){ const dv2=document.createElement('div'); dv2.className='divider'; anchor.before(dv2);
     const lb=document.createElement('div'); lb.className='sub'; lb.style.cssText='padding:6px 12px 2px;font-size:11px;letter-spacing:.06em'; lb.textContent='환수 · 패널티'; anchor.before(lb);
     [['penalty','채증 패널티'],['occur','환수발생'],['refund','환수완료']].forEach(([v,t])=>{ const b=document.createElement('button'); b.className='item sub'; b.dataset.view=v; b.textContent=t; b.onclick=()=>meView(v); anchor.before(b); }); }
@@ -2986,7 +2987,7 @@ function initEmp(r){
 /* 포털: 한 달치(정산서·추가매출·정산기준)를 한 번에 받아 캐시 → 메뉴 이동 시 서버 호출 없음 */
 async function meFetch(month){
   state.meAll=state.meAll||{}; if(state.meAll[month]) return state.meAll[month];
-  const p=api('getMyAll', month).then(b=>{ state.myCache[month+'|']=b.statement; state.myBonusCache[month]=b.bonus; if(b.criteria){ state.critCache=state.critCache||{}; state.critCache[month]=b.criteria; } if(!b.refund) b.refund={penalty:{month,rows:[],hidden:true,months:[]},occur:{month,regions:{},hidden:true,months:[]},refund:{month,rows:[],summary:null,hidden:true,months:[]}}; return b; }).catch(e=>{ delete state.meAll[month]; throw e; });
+  const p=api('getMyAll', month).then(b=>{ state.myCache[month+'|']=b.statement; state.myBonusCache[month]=b.bonus; if(b.criteria){ state.critCache=state.critCache||{}; state.critCache[month]=b.criteria; } if(!b.refund) b.refund={up:{month,rows:[],details:[],hidden:true,months:[]},penalty:{month,rows:[],hidden:true,months:[]},occur:{month,regions:{},hidden:true,months:[]},refund:{month,rows:[],summary:null,hidden:true,months:[]}}; return b; }).catch(e=>{ delete state.meAll[month]; throw e; });
   state.meAll[month]=p; return p;
 }
 async function loadMe(month, emp){
@@ -2997,8 +2998,8 @@ async function loadMe(month, emp){
   }catch(e){ toast(e.message, true); }
 }
 function meView(v){ state.view=v; document.querySelectorAll('.side .item').forEach(b=>b.classList.toggle('on', b.dataset.view===v)); const m=state.viewMonth||thisMonth();
-  $('btnXlsx').style.display=(v==='penalty'||v==='occur')?'none':'';
-  const RG={penalty:'grid2',occur:'gridO',refund:'gridR'}; if(RG[v]){ meShowGrid(RG[v]); const mm=state.myBonusMonths.includes(m)?m:(state.myBonusMonths[0]||m); if(v==='penalty') loadPenalty(mm); else if(v==='occur') loadOccur(mm); else loadRefund(mm); return; }
+  $('btnXlsx').style.display=(v==='penalty'||v==='occur'||v==='up')?'none':'';
+  const RG={penalty:'grid2',occur:'gridO',refund:'gridR',up:'gridU'}; if(RG[v]){ meShowGrid(RG[v]); const mm=state.myBonusMonths.includes(m)?m:(state.myBonusMonths[0]||m); if(v==='penalty') loadPenalty(mm); else if(v==='occur') loadOccur(mm); else if(v==='up') loadUp(mm); else loadRefund(mm); return; }
   if(v==='me') loadMe(m); else if(v==='meteam') { if(state.my&&state.my.month===m) renderMeTeam(); else loadMe(m); } else if(v==='mecrit') loadMeCrit(m); else loadMeBonus(m); }
 async function loadMeCrit(month){
   try{ state.critCache=state.critCache||{}; let d=state.critCache[month]; if(!d){ d=(await meFetch(month)).criteria; } if(!d) throw new Error('권한이 없습니다.'); state.myCritMonths=d.months||[]; state.months=state.myCritMonths.map(x=>({month:x})); state.cache=state.cache||{}; state.edit=false; state.exportSel=null;
