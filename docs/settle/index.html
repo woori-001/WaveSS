@@ -636,7 +636,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1013-76';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1013-77';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1949,7 +1949,7 @@ function parseIndivWorkbook(wb){
     const E=byEmp[emp]=byEmp[emp]||{emp,fee:0,cost:0,extra:0,refund:0,toss:0,n:0,nIlban:0,note:''};
     E.n++;
     if(kind==='일반'||kind==='추가'){ E.nIlban++; E.fee+=fee+recv+dong+bundle; E.cost+=ded; }
-    else if(kind==='환수'){ E.refund+=-amount; }
+    // '환수' 행은 합산하지 않음 — 환수차감은 환수발생 메뉴에서 가져옴
   });
   const out=Object.values(byEmp).sort((a,b)=>a.emp.localeCompare(b.emp,'ko'));
   return {rows:out, details, total:rows.length};
@@ -1966,9 +1966,9 @@ async function indFile(file){
     const prevToss={}, prevMan={}; (R.rows||[]).forEach(r=>{ prevToss[indKey(r.emp)]=r.toss; prevMan[indKey(r.emp)]=r.manual; });
     rows.forEach(r=>{ if(prevToss[indKey(r.emp)]) r.toss=prevToss[indKey(r.emp)]; r.manual=prevMan[indKey(r.emp)]||{}; });
     R.rows=rows; R.summary={...(R.summary||{}),total,file:file.name,rate:(R.summary&&R.summary.rate)||IND_RATE,extras:indExtras(R)}; R.pendingDetails=details; delete R.summary.refundFrom;
-    // 파일에 '환수' 행이 없으면 환수발생 메뉴(26년 이후 개통 = 개별 반영)의 금액으로 환수차감을 채움
+    // 환수차감은 항상 환수발생 메뉴(26년 이후 개통 = 개별 반영)에서 가져옴
     const occ=((state.ind.lookups||{}).occurRefund||{})[reg];
-    if(occ && Object.keys(occ).length && !rows.some(r=>r.refund)){ const seen={}; rows.forEach(r=>{ const x=occ[indKey(r.emp)]; if(x){ r.refund=x.amount; seen[indKey(r.emp)]=1; } });
+    if(occ){ const seen={}; rows.forEach(r=>{ const x=occ[indKey(r.emp)]; r.refund=x?x.amount:0; if(x) seen[indKey(r.emp)]=1; });
       Object.keys(occ).filter(k=>!seen[k]).forEach(k=>rows.push({emp:occ[k].emp,fee:0,cost:0,extra:0,refund:occ[k].amount,toss:0,n:0,nIlban:0,note:'',manual:{}})); R.summary.refundFrom='환수발생'; }
     state.indDetails={}; details.forEach(d=>{ const k=reg+'|'+indKey(d['유치자']); (state.indDetails[k]=state.indDetails[k]||[]).push(d); });
     state.indEmp=null; renderIndiv();
@@ -2012,7 +2012,7 @@ function renderIndiv(){
     l+=`<div class="pub ${cf?'lock':(pb?'on':'')}">`+(ed
       ? `<label class="chk"><input type="checkbox" ${pb?'checked':''} onchange="indPublish(this.checked)"><b>사원에게 공개</b> <span class="sub">— 체크한 달만 사원·팀장 계정에서 조회 가능 (팀별 정산서·추가매출1·2도 같이 공개)</span></label>`
       : `<div class="pubrow"><b>${cf?'🔒 확인완료':(pb?'✓ 사원 공개 중':'사원 비공개')}</b>${state.editor?`<span class="pubbtns"><button class="editbtn" onclick="indFlag('published',${pb?'false':'true'})">${pb?'공개 끄기':'공개 켜기'}</button><button class="editbtn ${cf?'':'pri'}" onclick="indConfirm(${cf?'false':'true'})">${cf?'확인완료 해제':'확인완료'}</button></span>`:''}</div><div class="sub">${cf?'이 지역·월은 마무리됨 — 편집 불가, 다른 메뉴 업로드 시 경고':(pb?'사원은 본인 정산서·추가매출, 팀장은 팀 전체·팀별 정산서·추가매출을 볼 수 있습니다':'공개 켜기를 누르면 사원·팀장이 볼 수 있습니다')}</div>`)+`</div>`; }
-  if(R.summary&&R.summary.refundFrom&&R.rows.some(r=>r.refund)) l+=`<div class="sub" style="padding:2px 4px 10px">※ 이 파일에 '환수' 행이 없어 환수차감은 <b>환수발생</b> 메뉴(26년 이후 개통 · 개별 반영)에서 가져왔습니다.</div>`;
+  if(R.summary) l+=`<div class="sub" style="padding:2px 4px 10px">${R.summary.refundFrom?'※ 환수차감은 <b>환수발생</b> 메뉴(26년 이후 개통 · 개별 반영)에서 가져옵니다.':'<span style="color:var(--danger)">※ 이 달·지역 환수발생이 아직 없습니다 — 환수발생을 먼저 올리면 환수차감이 자동 반영됩니다.</span>'}</div>`;
   if(ed||!R.summary) l+=`<div class="upl" id="indDrop" ${state.editor?'':'style="display:none"'}><b>${reg}</b> 정산리스트 엑셀 <label style="cursor:pointer"><b><u>파일 선택</u></b><input type="file" accept=".xlsx,.xls" style="display:none" onchange="indFile(this.files[0]);this.value=''"></label><div class="sub" style="margin-top:4px">추가매출·와이즐리와 같은 파일${R.summary?' · 다시 올리면 덮어씀':''}</div></div>`;
   l+=`<div class="block">${secHead('Salespeople',`${reg} 유치자`,rows.length)}`;
   if(!rows.length) l+=`<div class="empty-row">엑셀을 업로드하면 유치자 목록이 표시됩니다.</div>`;
