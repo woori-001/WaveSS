@@ -394,6 +394,9 @@
   .ol{display:grid;grid-template-columns:90px minmax(0,1fr) 84px 80px minmax(0,1.2fr) 96px;gap:0 8px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--rule);font-size:12.5px}
   .ol.hd span{font-size:11px;font-weight:600;letter-spacing:.06em;color:var(--tx3);text-transform:uppercase}.ol .r{text-align:right;font-variant-numeric:tabular-nums}.ol .neg{color:var(--danger)}.ol .c{padding-left:6px}
   .ol .sub{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .gridR .roed .ol{grid-template-columns:72px minmax(0,1fr) 76px 64px 96px 56px}.ol .op{display:flex;justify-content:flex-end}
+  .ol.off .c,.ol.off .r{text-decoration:line-through;color:var(--tx3)}.ol .why{display:block;font-size:11.5px;color:var(--danger);text-decoration:none}
+  .rksel{font-size:12px;padding:1px 4px;border:1px solid var(--rule);border-radius:4px;background:#fff;margin-top:2px;width:fit-content}
   .ag3 .amt.neg{color:var(--danger)}
   .xrow{display:flex;gap:6px;align-items:center;margin-bottom:6px}.xrow input{flex:1;border:1px solid var(--rule);border-radius:4px;padding:5px 8px;height:30px;font-size:13px;outline:none;min-width:0}.xrow input:focus{border-color:var(--ink)}.xrow select{border:1px solid var(--rule);border-radius:4px;height:30px;font-size:12.5px;background:#fff}.xrow .editbtn.danger{color:var(--danger);border-color:#f0c9c9;padding:2px 8px}
   .pub.lock{border-color:#c9a227;background:#fff8e1}.pub .pubrow{display:flex;align-items:center;justify-content:space-between;gap:8px}.pub .pubbtns{display:flex;gap:4px}.pub .editbtn.pri{background:var(--ink);color:#fff;border-color:var(--ink)}
@@ -636,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1013-77';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1019-79';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -2012,7 +2015,7 @@ function renderIndiv(){
     l+=`<div class="pub ${cf?'lock':(pb?'on':'')}">`+(ed
       ? `<label class="chk"><input type="checkbox" ${pb?'checked':''} onchange="indPublish(this.checked)"><b>사원에게 공개</b> <span class="sub">— 체크한 달만 사원·팀장 계정에서 조회 가능 (팀별 정산서·추가매출1·2도 같이 공개)</span></label>`
       : `<div class="pubrow"><b>${cf?'🔒 확인완료':(pb?'✓ 사원 공개 중':'사원 비공개')}</b>${state.editor?`<span class="pubbtns"><button class="editbtn" onclick="indFlag('published',${pb?'false':'true'})">${pb?'공개 끄기':'공개 켜기'}</button><button class="editbtn ${cf?'':'pri'}" onclick="indConfirm(${cf?'false':'true'})">${cf?'확인완료 해제':'확인완료'}</button></span>`:''}</div><div class="sub">${cf?'이 지역·월은 마무리됨 — 편집 불가, 다른 메뉴 업로드 시 경고':(pb?'사원은 본인 정산서·추가매출, 팀장은 팀 전체·팀별 정산서·추가매출을 볼 수 있습니다':'공개 켜기를 누르면 사원·팀장이 볼 수 있습니다')}</div>`)+`</div>`; }
-  if(R.summary) l+=`<div class="sub" style="padding:2px 4px 10px">${R.summary.refundFrom?'※ 환수차감은 <b>환수발생</b> 메뉴(26년 이후 개통 · 개별 반영)에서 가져옵니다.':'<span style="color:var(--danger)">※ 이 달·지역 환수발생이 아직 없습니다 — 환수발생을 먼저 올리면 환수차감이 자동 반영됩니다.</span>'}</div>`;
+  if(R.summary) l+=`<div class="sub" style="padding:2px 4px 10px">${R.summary.refundFrom?'※ 환수차감은 <b>환수발생</b> 메뉴에서 <b>개별정산서</b>로 지정되고 제외되지 않은 건만 가져옵니다.':'<span style="color:var(--danger)">※ 이 달·지역 환수발생이 아직 없습니다 — 환수발생을 먼저 올리면 환수차감이 자동 반영됩니다.</span>'}</div>`;
   if(ed||!R.summary) l+=`<div class="upl" id="indDrop" ${state.editor?'':'style="display:none"'}><b>${reg}</b> 정산리스트 엑셀 <label style="cursor:pointer"><b><u>파일 선택</u></b><input type="file" accept=".xlsx,.xls" style="display:none" onchange="indFile(this.files[0]);this.value=''"></label><div class="sub" style="margin-top:4px">추가매출·와이즐리와 같은 파일${R.summary?' · 다시 올리면 덮어씀':''}</div></div>`;
   l+=`<div class="block">${secHead('Salespeople',`${reg} 유치자`,rows.length)}`;
   if(!rows.length) l+=`<div class="empty-row">엑셀을 업로드하면 유치자 목록이 표시됩니다.</div>`;
@@ -2606,10 +2609,20 @@ async function roFile(file){
     const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true});
     const {rows,cats,total}=parseOccurWorkbook(wb);
     if(!state.edit) setEdit(true);
-    R.rows=rows; R.summary={total,file:file.name,cats}; state.roOpen={}; renderOccur();
+    const kinds={}; cats.forEach(c=>{ const k=R.summary&&R.summary.kinds&&R.summary.kinds[c]; if(k) kinds[c]=k; });
+    R.rows=rows; R.summary={total,file:file.name,cats,kinds}; state.roOpen={}; renderOccur();
     toast(`${reg} ${total}건 읽음 → ${cats.map(c=>`${c} ${rows.filter(r=>r.cat===c).length}건`).join(' · ')}`);
   }catch(e){ toast('엑셀 읽기 실패: '+e.message, true); }
 }
+// 시트(구분)별 반영처: 개별정산서 환수차감 / 팀결산 — 메뉴에서 정한 값(R.summary.kinds)이 우선, 없으면 이름에 '이전'이 있으면 팀결산
+const RO_KINDS = { '개별':{label:'개별정산서 환수차감', cls:'p'}, '팀결산':{label:'팀결산 (이전개통)', cls:'a'} };
+const roKind = (R, c) => (R&&R.summary&&R.summary.kinds&&R.summary.kinds[c]) || (/이전/.test(c)?'팀결산':'개별');
+const roLive = rows => (rows||[]).filter(r=>!r.ex);
+function roSetKind(c,v){ const R=state.ro.regions[state.roRegion]; R.summary=R.summary||{}; R.summary.kinds={...(R.summary.kinds||{}),[c]:v}; renderOccur(); }
+async function roExclude(i){ const R=state.ro.regions[state.roRegion], r=R.rows[i]; if(!r) return;
+  const d=await dlg({title:'환수 건 제외', desc:`${r.customer} (${r.emp}) · ${(Number(r.amount)||0).toLocaleString('ko-KR')}원\n개별정산서·팀결산 어디에도 반영하지 않습니다. 사유를 적어주세요.`, input:{label:'제외 사유', value:r.reason||'', placeholder:'예: 환수 취소 / 이미 전월 반영'}, ok:'제외', danger:true, validate:v=>v?'':'사유를 입력하세요.'});
+  if(!d.ok) return; r.ex=true; r.reason=d.value; renderOccur(); }
+function roRestore(i){ const r=state.ro.regions[state.roRegion].rows[i]; if(!r) return; r.ex=false; r.reason=''; renderOccur(); }
 const roCats = R => (R.summary&&R.summary.cats&&R.summary.cats.length) ? R.summary.cats : [...new Set((R.rows||[]).map(r=>r.cat))];
 const roShort = c => String(c).replace(/\(.*?\)/g,'').trim();       // '26년 이전개통(팀결산반영)' → '26년 이전개통'
 const roTag = c => { const m=String(c).match(/\((.*?)\)/); return m?m[1]:''; };   // 괄호 안 → 배지
@@ -2622,23 +2635,28 @@ function renderOccur(){
   const W=n=>(Number(n)||0).toLocaleString('ko-KR'); const cats=roCats(R);
   let l=`<div class="block">${secHead('Region','지역 선택')}<div class="rtabs">`+scopeRegs().map(r=>{ const X=A.regions[r]; return `<button class="rt ${r===reg?'on':''}" onclick="roRegionPick('${r}')"><b>${r}</b><span class="sub">${X.summary?`${X.rows.length}건 · ${W(X.rows.reduce((a,x)=>a+x.amount,0))}`:'미업로드'}</span></button>`; }).join('')+`</div></div>`;
   if(ed||!R.summary) l+=`<div class="upl" id="roDrop" ${state.editor?'':'style="display:none"'}><b>${reg}</b> 환수리스트 엑셀 <label style="cursor:pointer"><b><u>파일 선택</u></b><input type="file" accept=".xlsx,.xls" style="display:none" onchange="roFile(this.files[0]);this.value=''"></label><div class="sub" style="margin-top:4px">시트별로 구분해서 읽습니다 ('전체' 시트는 건너뜀)${R.summary?' · 다시 올리면 덮어씀':''}</div></div>`;
-  l+=`<div class="block">${secHead('Summary',`${reg} 요약`)}`+cats.map(c=>{ const cr=rows.filter(r=>r.cat===c), t=cr.reduce((a,r)=>a+r.amount,0); return `<div class="osum"><div class="ot"><b>${esc(roShort(c))}</b>${roTag(c)?`<span class="rtag a">${esc(roTag(c))}</span>`:''}</div><div class="ov"><span class="sub">${cr.length}건</span><span class="amt ${t<0?'neg':''} ${cr.length?'':'zero'}">${W(t)}</span></div></div>`; }).join('')
-    +`<div class="osum tot"><div class="ot"><b>전체</b></div><div class="ov"><span class="sub">${rows.length}건</span><span class="amt">${W(rows.reduce((a,r)=>a+r.amount,0))}</span></div></div>`+(R.summary&&R.summary.file?`<div class="sub" style="padding-top:8px">파일: ${esc(R.summary.file)}</div>`:'')+`</div>`;
+  const live=roLive(rows), nEx=rows.length-live.length;
+  l+=`<div class="block">${secHead('Summary',`${reg} 요약`)}`+cats.map(c=>{ const cr=live.filter(r=>r.cat===c), t=cr.reduce((a,r)=>a+r.amount,0), k=roKind(R,c), cx=rows.filter(r=>r.cat===c&&r.ex).length;
+      const kd= ed ? `<select class="rksel" onchange="roSetKind('${esc(c)}',this.value)">${Object.keys(RO_KINDS).map(x=>`<option value="${x}" ${x===k?'selected':''}>→ ${RO_KINDS[x].label}</option>`).join('')}</select>` : `<span class="rtag ${RO_KINDS[k].cls}">→ ${RO_KINDS[k].label}</span>`;
+      return `<div class="osum"><div class="ot"><b>${esc(roShort(c))}</b>${kd}</div><div class="ov"><span class="sub">${cr.length}건${cx?` · 제외 ${cx}`:''}</span><span class="amt ${t<0?'neg':''} ${cr.length?'':'zero'}">${W(t)}</span></div></div>`; }).join('')
+    +Object.keys(RO_KINDS).map(k=>{ const kr=live.filter(r=>roKind(R,r.cat)===k); return `<div class="osum subr"><div class="ot"><span class="sub">${RO_KINDS[k].label}</span></div><div class="ov"><span class="sub">${kr.length}건</span><span class="amt">${W(kr.reduce((a,r)=>a+r.amount,0))}</span></div></div>`; }).join('')
+    +`<div class="osum tot"><div class="ot"><b>전체 (제외 빼고)</b></div><div class="ov"><span class="sub">${live.length}건${nEx?` · 제외 ${nEx}건`:''}</span><span class="amt">${W(live.reduce((a,r)=>a+r.amount,0))}</span></div></div>`
+    +`<div class="sub" style="padding-top:8px">시트마다 반영처를 정할 수 있고(편집), 건별로 <b>제외</b>할 수 있습니다. 개별정산서 환수차감은 여기서 <b>개별정산서</b>로 지정되고 제외되지 않은 건만 가져갑니다.</div>`+(R.summary&&R.summary.file?`<div class="sub" style="padding-top:8px">파일: ${esc(R.summary.file)}</div>`:'')+`</div>`;
   $('ocol1').innerHTML=l;
   let h='', h3='';
   if(!R.summary) h=`<div class="empty-row">${A.hidden?`${esc(m)} 환수발생은 아직 공개되지 않았습니다.`:state.editor?'엑셀을 업로드하면 시트별 환수 리스트가 표시됩니다.':'등록된 환수발생 건이 없습니다.'}</div>`;
   const blocks=[];
   cats.forEach(c=>{ let h=''; const list=rows.map((r,i)=>({...r,_i:i})).filter(r=>r.cat===c); if(!list.length&&!R.summary) return;
-    h+=`<div class="block">${secHead(esc(roTag(c)||'Refund'),`${esc(roShort(c))}`,list.length)}`;
+    h+=`<div class="block ${ed?'roed':''}">${secHead(esc(roTag(c)||'Refund'),`${esc(roShort(c))}`,list.length)}`;
     if(!list.length){ h+=`<div class="empty-row">해당 건 없음</div></div>`; blocks.push({c,h}); return; }
     h+=`<div class="ag3 hd"><span>유치자 <span style="font-weight:400;letter-spacing:0;text-transform:none">(누르면 건별)</span></span><span class="r">건수</span><span class="r">정산금액</span></div>`;
-    adjGroups(list).forEach(gp=>{ const items=gp.idx.map(j=>list[j]), e=findEmp(gp.emp), key=c+'|'+gp.emp, open=O[key];
-      h+=`<div class="ag3 pick ${open?'open':''}" onclick="roToggle('${esc(key)}')"><span><span class="caret">${open?'▾':'▸'}</span>${e&&empBucket(e)?`<span class="tag">${esc(empBucket(e))}</span> `:''}<b>${esc(e?empLabel(e):gp.emp)}</b>${e?'':' <span class="warn" style="font-size:12px;color:var(--danger)">미등록</span>'}</span><span class="r">${items.length}</span><span class="amt ${items.reduce((a,r)=>a+r.amount,0)<0?'neg':''}">${W(items.reduce((a,r)=>a+r.amount,0))}</span></div>`;
-      if(open) h+=`<div class="agl"><div class="ol hd"><span>고객명</span><span>상품</span><span>개통일</span><span>상태</span><span class="r">정산금액</span></div>`+items.map(r=>`<div class="ol" title="${esc(r.memo)}"><span class="c">${esc(r.customer)}</span><span class="sub">${esc(r.product)}<span class="sub"> ${esc(r.option)}</span></span><span class="sub">${esc(r.open)}</span><span class="sub">${esc(r.status)}</span><span class="r ${r.amount<0?'neg':''}">${W(r.amount)}</span></div>`).join('')+`</div>`; });
-    h+=`<div class="ag3 tot"><span>소계</span><span class="r">${list.length}</span><span class="amt">${W(list.reduce((a,r)=>a+r.amount,0))}</span></div></div>`;
+    adjGroups(list).forEach(gp=>{ const items=gp.idx.map(j=>list[j]), on=roLive(items), e=findEmp(gp.emp), key=c+'|'+gp.emp, open=O[key]||(ed&&items.some(r=>r.ex)), t=on.reduce((a,r)=>a+r.amount,0);
+      h+=`<div class="ag3 pick ${open?'open':''}" onclick="roToggle('${esc(key)}')"><span><span class="caret">${open?'▾':'▸'}</span>${e&&empBucket(e)?`<span class="tag">${esc(empBucket(e))}</span> `:''}<b>${esc(e?empLabel(e):gp.emp)}</b>${e?'':' <span class="warn" style="font-size:12px;color:var(--danger)">미등록</span>'}${items.length-on.length?` <span class="sub">제외 ${items.length-on.length}</span>`:''}</span><span class="r">${on.length}</span><span class="amt ${t<0?'neg':''}">${W(t)}</span></div>`;
+      if(open) h+=`<div class="agl"><div class="ol hd"><span>고객명</span><span>상품</span><span>개통일</span><span>상태</span><span class="r">정산금액</span>${ed?'<span></span>':''}</div>`+items.map(r=>`<div class="ol ${r.ex?'off':''}" title="${esc(r.memo)}"><span class="c">${esc(r.customer)}${r.ex?`<span class="why">제외 · ${esc(r.reason)}</span>`:''}</span><span class="sub">${esc(r.product)}<span class="sub"> ${esc(r.option)}</span></span><span class="sub">${esc(r.open)}</span><span class="sub">${esc(r.status)}</span><span class="r ${r.amount<0?'neg':''}">${W(r.amount)}</span>${ed?`<span class="op">${r.ex?`<button class="editbtn" onclick="event.stopPropagation();roRestore(${r._i})">복원</button>`:`<button class="editbtn danger" onclick="event.stopPropagation();roExclude(${r._i})">제외</button>`}</span>`:''}</div>`).join('')+`</div>`; });
+    const lv=roLive(list); h+=`<div class="ag3 tot"><span>소계</span><span class="r">${lv.length}</span><span class="amt">${W(lv.reduce((a,r)=>a+r.amount,0))}</span></div></div>`;
     blocks.push({c,h});
   });
-  blocks.forEach((b,i)=>{ if(/이전/.test(b.c)) h+=b.h; else h3+=b.h; });
+  blocks.forEach((b,i)=>{ if(roKind(R,b.c)==='팀결산') h+=b.h; else h3+=b.h; });
   if(blocks.length&&!h3){ h3=blocks[blocks.length-1].h; h=blocks.slice(0,-1).map(b=>b.h).join(''); }
   $('ocol2').innerHTML=h; $('ocol3').innerHTML=h3;
   const dz=$('roDrop'); if(dz){ dz.addEventListener('dragover',e=>{e.preventDefault();dz.classList.add('on');}); dz.addEventListener('dragleave',()=>dz.classList.remove('on')); dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('on');roFile(e.dataTransfer.files[0]);}); }
@@ -2656,9 +2674,9 @@ async function saveOccur(){
 // 요약 표 (PNG / 전자결재): 구분별 건수·금액
 function roSummaryHtml(R, month, teamOnly){
   const rows=(R&&R.rows)||[]; if(!rows.length) return '';
-  const W=n=>(Number(n)||0).toLocaleString('ko-KR'), cats=roCats(R).filter(c=>!teamOnly||/이전/.test(c)), mm=`${+month.slice(5)}월`;   // 전자결재(teamOnly)에는 이전년도 개통(팀결산) 시트만
+  const W=n=>(Number(n)||0).toLocaleString('ko-KR'), cats=roCats(R).filter(c=>!teamOnly||roKind(R,c)==='팀결산'), mm=`${+month.slice(5)}월`;   // 전자결재(teamOnly)에는 이전년도 개통(팀결산) 시트만
   if(!cats.length) return '';
-  return `<div style="display:flex;flex-wrap:wrap;gap:0 16px;align-items:flex-start">`+cats.map(c=>{ const cr=rows.filter(r=>r.cat===c); const t=cr.reduce((a,r)=>a+r.amount,0);
+  return `<div style="display:flex;flex-wrap:wrap;gap:0 16px;align-items:flex-start">`+cats.map(c=>{ const cr=roLive(rows).filter(r=>r.cat===c); const t=cr.reduce((a,r)=>a+r.amount,0);
     return `<div class="apdata small" style="min-width:300px"><div class="apt">${month.slice(2,4)}년 ${mm} 환수 › ${esc(roShort(c))}${roTag(c)?` <span class="sub">(${esc(roTag(c))})</span>`:''}</div><table class="mini"><tr><th>월</th><th class="r">건수</th><th class="r">금액</th></tr><tr><td>${mm}</td><td class="r">${cr.length}</td><td class="r">${W(t)}</td></tr><tr class="tot"><td>합계</td><td class="r">${cr.length}</td><td class="r ${t<0?'neg':''}">${W(t)}</td></tr></table></div>`; }).join('')+`</div>`;
 }
 async function exportOccurPng(){
@@ -2759,7 +2777,7 @@ function clCalc(){
       o.sky=sky.filter(r=>region(r.team)===reg).reduce((a,r)=>a+(Number(r.amount)||0),0);
       o.up=up.filter(r=>(r.region||region(r.team))===reg).reduce((a,r)=>a+(Number(r.amount)||0),0);
       o.pen=-pen.filter(r=>region(r.team)===reg||r.team===reg+' '+OFF).reduce((a,r)=>a+(Number(r.amount)||0),0);
-      const occ=((oc[reg]||{}).rows||[]).filter(r=>/이전/.test(r.cat));
+      const occ=roLive((oc[reg]||{}).rows).filter(r=>roKind(oc[reg],r.cat)==='팀결산');
       o.retiredOcc=occ.filter(r=>retired(r.emp)).reduce((a,r)=>a+r.amount,0);
       o.y25occ=occ.filter(r=>!retired(r.emp)).reduce((a,r)=>a+r.amount,0);
       o.y25paid=rfLive.filter(r=>r.cat==='팀결산'&&!r.exAdj&&rfRegionOf(r.dept)===reg).reduce((a,r)=>a+r.paid,0);
