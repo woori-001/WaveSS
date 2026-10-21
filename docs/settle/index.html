@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1019-79';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1021-80';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -2783,6 +2783,7 @@ function clCalc(){
       o.y25paid=rfLive.filter(r=>r.cat==='팀결산'&&!r.exAdj&&rfRegionOf(r.dept)===reg).reduce((a,r)=>a+r.paid,0);
       o.retiredPaid=rfLive.filter(r=>r.cat==='제외'&&rfRegionOf(r.dept)===reg).reduce((a,r)=>a+r.paid,0);
       o.y25=o.y25occ+o.y25paid;
+      if(oc[reg]&&(oc[reg].rows||[]).length){ o.refundFile=o.refund; o.refund=roLive(oc[reg].rows).filter(r=>roKind(oc[reg],r.cat)==='개별').reduce((a,r)=>a+r.amount,0); }   // 환수발생 = 환수발생 메뉴 기준
     }
     // 수기 수정 (편집에서 셀 직접 입력) — 원래 값은 o.orig 에 보관
     const ov=(S.overrides||{})[t.coop]||{}; o.orig={}; o.ov=ov;
@@ -2804,7 +2805,7 @@ function clVerify(){
     const F={}; (C.emps||[]).filter(e=>t&&e.coop===t.coop).forEach(e=>{ F[indKey(e.emp)]=e; });
     const Sv={}; (R.rows||[]).forEach(r=>{ Sv[indKey(r.emp)]=r; });
     const keys=[...new Set(Object.keys(F).concat(Object.keys(Sv)))].sort((a,b)=>a.localeCompare(b,'ko'));
-    const FIELDS=[['fee','수수료'],['cost','비용'],['refund','환수차감'],['n','전체건'],['nIlban','일반건']];
+    const FIELDS=[['fee','수수료'],['cost','비용'],['refund','환수차감'],['nIlban','건수(일반+추가)']];   // 환수 건은 환수발생 메뉴 기준이라 건수에서 뺌
     const list=keys.map(k=>{ const f=F[k], s=Sv[k]; const d={}; let st='ok';
       FIELDS.forEach(([key])=>{ const a=f?Number(f[key])||0:null, b=s?Number(s[key])||0:null; const diff=(a==null||b==null)?null:a-b; d[key]={a,b,diff}; if(diff==null) st='bad'; else if(Math.abs(diff)>CL_TOL) st='bad'; else if(diff!==0&&st==='ok') st='warn'; });
       return {key:k, name:(f&&f.emp)||(s&&s.emp)||k, f, s, d, status: (!f||!s)?'bad':st, missing: !f?'file':!s?'saved':''}; });
@@ -2859,7 +2860,7 @@ function renderClose(){
   l+=`</div>`;
   // 대조 상태
   l+=`<div class="block">${secHead('Check','정산관리 대조')}`+ADJ_REGIONS.map(reg=>{ const x=v[reg]; return `<div class="osum"><div class="ot"><b>${reg}</b><span class="sub">${x.confirmed?'확인완료':'<span class="warn" style="color:var(--danger)">확인완료 전</span>'}${x.coop?' · '+esc(x.coop):''}</span></div><div class="ov">${S?clStatusTag(x):'<span class="sub">–</span>'}</div></div>`; }).join('')
-    +`<div class="sub" style="padding-top:8px">정산관리(개별정산서 저장값)를 기준으로 파일의 유치자별 수수료·비용·환수차감·건수를 비교합니다. 1원이라도 다르면 차이로 표시.</div></div>`;
+    +`<div class="sub" style="padding-top:8px">정산관리를 기준으로 파일의 유치자별 수수료·비용·건수(일반+추가)를 개별정산서와, 환수차감을 <b>환수발생</b> 메뉴(개별정산서 지정·제외 반영)와 비교합니다. 1원이라도 다르면 차이로 표시.</div></div>`;
   // 별도 표기 (수기)
   const notes=(S&&S.notes)||[];
   l+=`<div class="block">${secHead('Notes','전자결재 별도 표기')}`;
@@ -2882,10 +2883,10 @@ function renderClose(){
       const list=x.list.filter(r=>!state.clOnlyDiff||r.status!=='ok');
       const dcell=d=>{ if(d.diff==null) return `<td class="r"><span class="sub">–</span></td>`; const cls=d.diff===0?'ok':Math.abs(d.diff)<=CL_TOL?'warn':'bad'; return `<td class="r d ${cls}">${d.diff===0?'0':(d.diff>0?'+':'')+clW(d.diff)}</td>`; };
       const vcell=n=>`<td class="r">${n==null?'<span class="sub">–</span>':clW(n)}</td>`;
-      h+=`<div class="tt-wrap"><table class="tt clv"><thead><tr><th rowspan="2">유치자</th><th colspan="3">수수료</th><th colspan="3">비용</th><th colspan="3">환수차감</th><th colspan="2">건수</th></tr><tr><th class="r">파일</th><th class="r">정산관리</th><th class="r">차이</th><th class="r">파일</th><th class="r">정산관리</th><th class="r">차이</th><th class="r">파일</th><th class="r">정산관리</th><th class="r">차이</th><th class="r">파일</th><th class="r">정산관리</th></tr></thead><tbody>`;
+      h+=`<div class="tt-wrap"><table class="tt clv"><thead><tr><th rowspan="2">유치자</th><th colspan="3">수수료</th><th colspan="3">비용</th><th colspan="3">환수차감 <span style="font-weight:400">(정산관리=환수발생)</span></th><th colspan="2">건수 <span style="font-weight:400">(환수 제외)</span></th></tr><tr><th class="r">파일</th><th class="r">정산관리</th><th class="r">차이</th><th class="r">파일</th><th class="r">정산관리</th><th class="r">차이</th><th class="r">파일</th><th class="r">정산관리</th><th class="r">차이</th><th class="r">파일</th><th class="r">정산관리</th></tr></thead><tbody>`;
       if(!list.length) h+=`<tr><td colspan="12" class="sub">모든 유치자 일치</td></tr>`;
-      list.forEach(r=>{ const e=findEmp(r.name); const dk=reg+'|'+r.key, dopen=!!state.clDetOpen[dk]; h+=`<tr class="${r.status} pick" onclick="clDetToggle('${reg}','${esc(r.key)}','${esc(r.name)}')"><td><span class="caret">${dopen?'▾':'▸'}</span>${esc(e?empLabel(e):r.name)}${r.missing==='file'?' <span class="rtag x">파일 없음</span>':r.missing==='saved'?' <span class="rtag x">정산관리 없음</span>':''}</td>${vcell(r.d.fee.a)}${vcell(r.d.fee.b)}${dcell(r.d.fee)}${vcell(r.d.cost.a)}${vcell(r.d.cost.b)}${dcell(r.d.cost)}${vcell(r.d.refund.a)}${vcell(r.d.refund.b)}${dcell(r.d.refund)}<td class="r">${r.d.n.a==null?'–':r.d.n.a}</td><td class="r ${r.d.n.diff?'d bad':''}">${r.d.n.b==null?'–':r.d.n.b}</td></tr>`; if(dopen) h+=`<tr class="cldet"><td colspan="12">${clDetHtml(reg,r.key)}</td></tr>`; });
-      const T=x.tot; h+=`<tr class="tot"><td>합계</td>${vcell(T.fee.a)}${vcell(T.fee.b)}${dcell(T.fee)}${vcell(T.cost.a)}${vcell(T.cost.b)}${dcell(T.cost)}${vcell(T.refund.a)}${vcell(T.refund.b)}${dcell(T.refund)}<td class="r">${T.n.a}</td><td class="r ${T.n.diff?'d bad':''}">${T.n.b}</td></tr></tbody></table></div>`;
+      list.forEach(r=>{ const e=findEmp(r.name); const dk=reg+'|'+r.key, dopen=!!state.clDetOpen[dk]; h+=`<tr class="${r.status} pick" onclick="clDetToggle('${reg}','${esc(r.key)}','${esc(r.name)}')"><td><span class="caret">${dopen?'▾':'▸'}</span>${esc(e?empLabel(e):r.name)}${r.missing==='file'?' <span class="rtag x">파일 없음</span>':r.missing==='saved'?' <span class="rtag x">정산관리 없음</span>':''}</td>${vcell(r.d.fee.a)}${vcell(r.d.fee.b)}${dcell(r.d.fee)}${vcell(r.d.cost.a)}${vcell(r.d.cost.b)}${dcell(r.d.cost)}${vcell(r.d.refund.a)}${vcell(r.d.refund.b)}${dcell(r.d.refund)}<td class="r">${r.d.nIlban.a==null?'–':r.d.nIlban.a}</td><td class="r ${r.d.nIlban.diff?'d bad':''}">${r.d.nIlban.b==null?'–':r.d.nIlban.b}</td></tr>`; if(dopen) h+=`<tr class="cldet"><td colspan="12">${clDetHtml(reg,r.key)}</td></tr>`; });
+      const T=x.tot; h+=`<tr class="tot"><td>합계</td>${vcell(T.fee.a)}${vcell(T.fee.b)}${dcell(T.fee)}${vcell(T.cost.a)}${vcell(T.cost.b)}${dcell(T.cost)}${vcell(T.refund.a)}${vcell(T.refund.b)}${dcell(T.refund)}<td class="r">${T.nIlban.a}</td><td class="r ${T.nIlban.diff?'d bad':''}">${T.nIlban.b}</td></tr></tbody></table></div>`;
     });
     h+=`</div>`;
   }
@@ -2917,14 +2918,18 @@ async function clDetToggle(reg, key, name){
   }
   renderClose();
 }
-function clDetMatch(file, saved){
+// 환수발생 메뉴의 그 유치자 건(개별정산서 지정 · 제외 빼고)을 상세 대조용 형태로
+function clOccDet(reg, key){ const X=(state.cl.occur||{})[reg]; if(!X) return null;
+  return (X.rows||[]).filter(r=>roKind(X,r.cat)==='개별'&&indKey(r.emp)===key).map(r=>({'고객명':r.customer,'정산종류':'환수','상품명':r.product,'상품옵션':r.option,'개통일':r.open,'개통상태':r.status,'정산금액':r.amount,_occ:1,_ex:r.ex?(r.reason||'제외'):''})); }
+function clDetMatch(file, saved, fields){
+  fields=fields||CL_DET_F;
   const pool={}; saved.forEach((d,i)=>{ const k=clDetKey(d); (pool[k]=pool[k]||[]).push(i); });
   const used={}; const out=[];
   file.forEach(f=>{ const k=clDetKey(f); const cand=(pool[k]||[]).filter(i=>!used[i]);
     // 같은 키가 여럿이면 정산금액이 같은 것을 우선
     let pick=cand.find(i=>clDetNum(saved[i],'정산금액')===clDetNum(f,'정산금액')); if(pick==null) pick=cand[0];
     if(pick==null){ out.push({f, s:null, st:'file'}); return; } used[pick]=true; const sd=saved[pick];
-    const diff=CL_DET_F.some(([k])=>clDetNum(f,k)!==clDetNum(sd,k)); out.push({f, s:sd, st:diff?'bad':'ok'}); });
+    const diff=fields.some(([k])=>clDetNum(f,k)!==clDetNum(sd,k)); out.push({f, s:sd, st:diff?'bad':'ok'}); });
   saved.forEach((d,i)=>{ if(!used[i]) out.push({f:null, s:d, st:'saved'}); });
   return out;
 }
@@ -2932,13 +2937,16 @@ function clDetHtml(reg, key){
   const D=state.clDet[reg+'|'+key]; if(!D) return `<div class="sub" style="padding:8px">불러오는 중…</div>`;
   if(D.err) return `<div class="sub" style="padding:8px;color:var(--danger)">${esc(D.err)}</div>`;
   if(!D.file.length&&!D.saved.length) return `<div class="sub" style="padding:8px">고객별 상세가 없습니다. (파일을 다시 업로드하거나, 개별정산서에 상세가 저장돼 있어야 합니다)</div>`;
-  const rows=clDetMatch(D.file, D.saved); const show=rows.filter(r=>!state.clOnlyDiff||r.st!=='ok');
+  // 일반·추가 건은 개별정산서 상세와, 환수 건은 환수발생 메뉴와 대조 (환수발생이 없는 달은 개별정산서 상세의 환수 행과)
+  const isRf=d=>String(d['정산종류']||'')==='환수', occ=clOccDet(reg,key);
+  const rows = occ ? clDetMatch(D.file.filter(d=>!isRf(d)), D.saved.filter(d=>!isRf(d))).concat(clDetMatch(D.file.filter(isRf), occ, [['정산금액','정산금액']]).map(r=>r.s&&r.s._ex?{...r,st:'ex'}:r)) : clDetMatch(D.file, D.saved);
+  const show=rows.filter(r=>!state.clOnlyDiff||r.st!=='ok');
   const W=n=>n.toLocaleString('ko-KR'); const pair=(r,k)=>{ const a=r.f?clDetNum(r.f,k):null, b=r.s?clDetNum(r.s,k):null; const bad=a!=null&&b!=null&&a!==b; return `<td class="r ${bad?'d bad':''}">${a==null?'–':W(a)}${(a!==b)?`<span class="vs">${b==null?'–':W(b)}</span>`:''}</td>`; };
   const g=(r,k)=>esc(String((r.f||r.s)[k]||''));
-  let h=`<div class="cldetw"><div class="sub" style="padding:4px 0 6px">고객별 · 파일 ${D.file.length}건 / 정산관리 ${D.saved.length}건 · 일치 ${rows.filter(r=>r.st==='ok').length} · 금액 차이 ${rows.filter(r=>r.st==='bad').length} · 파일에만 ${rows.filter(r=>r.st==='file').length} · 정산관리에만 ${rows.filter(r=>r.st==='saved').length} <span class="sub">(값이 다르면 파일값 <span class="vs">정산관리값</span> 순으로 표시)</span></div>`;
+  let h=`<div class="cldetw"><div class="sub" style="padding:4px 0 6px">고객별 · 파일 ${D.file.length}건 / 정산관리 ${occ?`${D.saved.filter(d=>!isRf(d)).length}건 + 환수발생 ${occ.filter(d=>!d._ex).length}건${occ.some(d=>d._ex)?` (제외 ${occ.filter(d=>d._ex).length})`:''}`:`${D.saved.length}건`} · 일치 ${rows.filter(r=>r.st==='ok').length} · 금액 차이 ${rows.filter(r=>r.st==='bad').length} · 파일에만 ${rows.filter(r=>r.st==='file').length} · 정산관리에만 ${rows.filter(r=>r.st==='saved').length} <span class="sub">(값이 다르면 파일값 <span class="vs">정산관리값</span> 순으로 표시)</span></div>`;
   h+=`<table class="tt cld"><thead><tr><th>상태</th><th>종류</th><th>고객명</th><th>상품</th><th>개통일</th><th>개통상태</th>${CL_DET_F.map(([k,l])=>`<th class="r">${l}</th>`).join('')}</tr></thead><tbody>`;
   if(!show.length) h+=`<tr><td colspan="12" class="sub">모든 고객 일치</td></tr>`;
-  show.forEach(r=>{ const tag=r.st==='ok'?'<span class="rtag p">일치</span>':r.st==='bad'?'<span class="rtag x">차이</span>':r.st==='file'?'<span class="rtag a">파일에만</span>':'<span class="rtag a">정산관리에만</span>';
+  show.forEach(r=>{ const tag=r.st==='ok'?'<span class="rtag p">일치</span>':r.st==='bad'?'<span class="rtag x">차이</span>':r.st==='file'?'<span class="rtag a">파일에만</span>':r.st==='ex'?`<span class="rtag x">환수발생 제외</span><span class="sub" style="display:block">${esc(r.s._ex)}</span>`:`<span class="rtag a">${r.s&&r.s._occ?'환수발생에만':'정산관리에만'}</span>`;
     h+=`<tr class="${r.st}"><td>${tag}</td><td>${g(r,'정산종류')}</td><td>${g(r,'고객명')}${r.f&&r.s&&r.f['고객명']!==r.s['고객명']?`<span class="vs">${esc(r.s['고객명'])}</span>`:''}</td><td>${g(r,'상품명')}<span class="sub"> ${g(r,'상품옵션')}</span></td><td class="sub">${g(r,'개통일')}</td><td class="sub">${g(r,'개통상태')}</td>${CL_DET_F.map(([k])=>pair(r,k)).join('')}</tr>`; });
   return h+`</tbody></table></div>`;
 }
@@ -2981,7 +2989,7 @@ function exportCloseXlsx(){
   a2.push([]); a2.push(['전자결재 별도 표기','금액']); c.notes.forEach(n=>a2.push([n.label,n.amount]));
   XLSX.utils.book_append_sheet(wb, mk(a2,[26,14,12,12,12,14,14]), '별도표기');
   ADJ_REGIONS.forEach(reg=>{ const x=v[reg]; const a=[['유치자','수수료(파일)','수수료(정산관리)','차이','비용(파일)','비용(정산관리)','차이','환수차감(파일)','환수차감(정산관리)','차이','전체건(파일)','전체건(정산관리)','상태']]
-      .concat(x.list.map(r=>[r.name,r.d.fee.a,r.d.fee.b,r.d.fee.diff,r.d.cost.a,r.d.cost.b,r.d.cost.diff,r.d.refund.a,r.d.refund.b,r.d.refund.diff,r.d.n.a,r.d.n.b,r.status==='ok'?'일치':r.status==='warn'?'오차':r.missing==='file'?'파일 없음':r.missing==='saved'?'정산관리 없음':'차이']));
+      .concat(x.list.map(r=>[r.name,r.d.fee.a,r.d.fee.b,r.d.fee.diff,r.d.cost.a,r.d.cost.b,r.d.cost.diff,r.d.refund.a,r.d.refund.b,r.d.refund.diff,r.d.nIlban.a,r.d.nIlban.b,r.status==='ok'?'일치':r.status==='warn'?'오차':r.missing==='file'?'파일 없음':r.missing==='saved'?'정산관리 없음':'차이']));
     XLSX.utils.book_append_sheet(wb, mk(a,[12,14,14,10,14,14,10,14,14,10,10,10,10]), `대조_${reg}`); });
   const a4=[['협력점','유치자','수수료','비용','환수차감','환수입금','전체건','일반건']].concat(C.emps.map(e=>[e.coop,e.emp,e.fee,e.cost,e.refund,e.paid,e.n,e.nIlban]));
   XLSX.utils.book_append_sheet(wb, mk(a4,[18,12,14,14,12,12,8,8]), '유치자별(파일)');
