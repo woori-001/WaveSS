@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1109-82';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1109-83';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1045,7 +1045,7 @@ async function exportPng(){
 const won = n => (Number(n)||0).toLocaleString('ko-KR')+'원';
 const OFF = '퇴/휴직';
 const RANKS=/(사원|주임|대리|과장|차장|부장|팀장|실장|매니저|프로|인턴|님)$/;
-const normName = n => String(n||'').replace(/\s+/g,'').replace(/\(.*?\)/g,'').replace(RANKS,'').replace(/\d+$/,'').trim();   // '이상민87' 같은 뒤 숫자 제거
+const normName = n => String(n||'').replace(/\s+/g,'').replace(/\(.*?\)/g,'').replace(RANKS,'').trim();   // 뒤 숫자는 남김: 동명이인 구분(이상민87 / 이상민95)
 function findEmp(name){ const k=normName(name); if(!k) return null; const hit=state.settings.employees.find(e=>normName(e.name)===k) || state.settings.employees.find(e=>normName(e.name).startsWith(k)||k.startsWith(normName(e.name))) || null;
   if(!hit && /^(퇴|휴)/.test(k) && k.length>=3) return findEmp(k.slice(1));      // '퇴홍길동' 처럼 퇴사 표시가 붙은 이름
   return hit; }
