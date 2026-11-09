@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>[검수] 정산 관리</title></head>
+<body><div id="tl" style="font:14px sans-serif;padding:40px;text-align:center;color:#555">검수용 웹 불러오는 중…</div>
+<script>
+/* 검수용 웹 로더: 실제 정산관리(../settle/index.html)를 불러와 몇 군데만 바꿔서 띄움.
+   - 서버 함수: settle-api-check (settle_check_* 테이블만 사용, config.js 의 fn) → 여기서 올린 건 실제 웹에 영향 없음
+   - 오른쪽 아래: [실제 웹과 비교] [검수 데이터 비우기] */
+(async () => {
+const RIBBON = '<div style="position:fixed;left:0;right:0;bottom:0;z-index:9999;background:#7048e8;color:#fff;font-size:12px;font-weight:700;text-align:center;padding:3px 0;pointer-events:none">검수용 웹 — 여기 올린 내용은 실제 정산관리에 반영되지 않습니다</div>';
+const PATCH = [
+  [/<title>[^<]*<\/title>/, '<title>[검수] 정산 관리</title>'],
+  [/<body>/, '<body>\n' + RIBBON],
+  [/const BUILD='[^']*'/, "const BUILD='CHECK-c1109-1'"],
+  ['/functions/v1/settle-api`', "/functions/v1/${CFG.fn||'settle-api'}`"],
+];
+const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+async function callFn(fn, args) {
+  const C = window.SETTLE_CONFIG; const { data: { session } } = await sb.auth.getSession();
+  if (!session) throw new Error('먼저 로그인하세요.');
+  const r = await fetch(C.url + '/functions/v1/' + C.fn, { method: 'POST', headers: { 'Content-Type': 'application/json', apikey: C.anonKey, Authorization: 'Bearer ' + session.access_token }, body: JSON.stringify({ fn, args }) });
+  const j = await r.json(); if (!j.ok) throw new Error(j.error || '실패'); return j.result;
+}
+const rowText = r => Object.keys(r).filter(k => k !== '월').map(k => `<b>${esc(k)}</b> ${esc(typeof r[k] === 'number' ? r[k].toLocaleString('ko-KR') : r[k])}`).join(' · ');
+function openCompare() {
+  let ov = document.getElementById('cmpOv'); if (ov) ov.remove();
+  ov = document.createElement('div'); ov.id = 'cmpOv';
+  ov.style.cssText = 'position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,.45);display:flex;align-items:flex-start;justify-content:center;padding:30px 12px;overflow:auto;font-family:inherit';
+  let m = ''; try { m = (typeof state !== 'undefined' && state.viewMonth) || ''; } catch (_) {}
+  if (!m) { const d = new Date(); d.setMonth(d.getMonth() - 1); m = d.toISOString().slice(0, 7); }
+  ov.innerHTML = `<div style="background:#fff;color:#222;border-radius:12px;max-width:980px;width:100%;padding:20px 22px;box-shadow:0 10px 40px rgba(0,0,0,.3)">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><b style="font-size:17px">실제 웹과 비교</b>
+      <input id="cmpM" type="month" value="${esc(m)}" style="padding:5px 8px;border:1px solid #ccc;border-radius:6px">
+      <button id="cmpGo" style="padding:6px 12px;border:0;border-radius:6px;background:#7048e8;color:#fff;font-weight:700;cursor:pointer">비교하기</button>
+      <span style="flex:1"></span><button id="cmpX" style="padding:6px 10px;border:1px solid #ccc;background:#fff;border-radius:6px;cursor:pointer">닫기</button></div>
+    <div style="font-size:12px;color:#777;margin-top:6px">이 달에 <b>검수용 웹(내가 올린 것)</b>과 <b>실제 정산관리(대무자가 올린 것)</b>에 저장된 내용을 메뉴별로 한 줄씩 맞춰봐요. 저장 시각·저장한 사람·파일 이름은 비교에서 빼요.</div>
+    <div id="cmpOut" style="margin-top:14px"></div></div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('#cmpX').onclick = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  const go = async () => {
+    const out = ov.querySelector('#cmpOut'), mm = ov.querySelector('#cmpM').value;
+    out.innerHTML = '<div style="color:#777">비교 중…</div>';
+    try {
+      const r = await callFn('compareReal', [mm]);
+      if (!r.tables.length) { out.innerHTML = `<div style="color:#777">${esc(mm)}에는 양쪽 모두 저장된 내용이 없어요.</div>`; return; }
+      const bad = r.tables.filter(t => !t.same).length;
+      let h = `<div style="padding:10px 12px;border-radius:8px;margin-bottom:12px;font-weight:700;${bad ? 'background:#fff4e6;color:#d9480f' : 'background:#ebfbee;color:#2b8a3e'}">${bad ? `다른 메뉴 ${bad}개 — 아래에서 다른 줄을 확인하세요` : '✔ 모든 메뉴가 똑같아요'}</div>`;
+      h += '<table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="background:#f1f3f5"><th style="text-align:left;padding:6px">메뉴</th><th style="padding:6px">검수(나)</th><th style="padding:6px">실제(대무자)</th><th style="padding:6px">결과</th></tr>';
+      r.tables.forEach((t, i) => {
+        h += `<tr style="border-top:1px solid #eee"><td style="padding:6px">${esc(t.label)}</td><td style="text-align:center">${t.mine}줄</td><td style="text-align:center">${t.real}줄</td><td style="text-align:center;font-weight:700;color:${t.same ? '#2b8a3e' : '#d9480f'}">${t.same ? '✔ 같음' : `✖ 다름 <a href="#" data-i="${i}" style="font-weight:400">자세히</a>`}</td></tr>`;
+        if (!t.same) h += `<tr id="cmpD${i}" style="display:none"><td colspan="4" style="padding:6px 8px 12px;background:#fafafa;font-size:12px;line-height:1.6">
+          ${t.nOnlyMine ? `<div style="color:#7048e8;font-weight:700;margin-top:4px">검수(나)에만 있는 줄 ${t.nOnlyMine}개${t.nOnlyMine > 30 ? ' (앞 30개만)' : ''}</div>` + t.onlyMine.map(x => `<div>· ${rowText(x)}</div>`).join('') : ''}
+          ${t.nOnlyReal ? `<div style="color:#d9480f;font-weight:700;margin-top:8px">실제(대무자)에만 있는 줄 ${t.nOnlyReal}개${t.nOnlyReal > 30 ? ' (앞 30개만)' : ''}</div>` + t.onlyReal.map(x => `<div>· ${rowText(x)}</div>`).join('') : ''}
+          <div style="color:#999;margin-top:6px">같은 건인데 값이 다르면 양쪽에 한 줄씩 나와요 — 두 줄을 비교해 보세요.</div></td></tr>`;
+      });
+      out.innerHTML = h + '</table>';
+      out.querySelectorAll('a[data-i]').forEach(a => a.onclick = e => { e.preventDefault(); const d = out.querySelector('#cmpD' + a.dataset.i); d.style.display = d.style.display === 'none' ? '' : 'none'; });
+    } catch (e) { out.innerHTML = `<div style="color:#c92a2a">비교 실패: ${esc(e.message || e)}</div>`; }
+  };
+  ov.querySelector('#cmpGo').onclick = go; go();
+}
+async function resetCheck(btn) {
+  if (!confirm('검수용 웹의 데이터를 모두 비울까요?\n(설정·팀·사원은 남고, 실제 정산관리는 영향 없어요)')) return;
+  btn.disabled = true; btn.textContent = '비우는 중…';
+  try { await callFn('resetCheckData', []); alert('비웠어요. 화면을 새로 불러올게요.'); location.reload(); }
+  catch (e) { alert('실패: ' + (e.message || e)); btn.disabled = false; btn.textContent = '검수 데이터 비우기'; }
+}
+  try {
+    const res = await fetch('../settle/index.html', { cache: 'no-store' });
+    let h = await res.text();
+    const miss = [];
+    PATCH.forEach(([a, b], i) => { const hit = typeof a === 'string' ? h.indexOf(a) >= 0 : a.test(h); if (!hit) miss.push(i + 1); else h = h.replace(a, () => b); });
+    if (miss.length) throw new Error('실제 웹이 바뀌어서 검수용 수정 ' + miss.join(',') + '번을 못 붙였어요.');
+    document.open(); document.write(h); document.close();
+    const box = document.createElement('div');
+    box.style.cssText = 'position:fixed;right:10px;bottom:26px;z-index:10000;display:flex;gap:6px';
+    const mk = (t, bg, fn) => { const b = document.createElement('button'); b.textContent = t; b.style.cssText = `background:${bg};color:#fff;border:0;border-radius:8px;padding:7px 11px;font-size:12px;font-weight:700;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.2)`; b.onclick = () => fn(b); box.appendChild(b); };
+    mk('실제 웹과 비교', '#7048e8', openCompare);
+    mk('검수 데이터 비우기', '#868e96', resetCheck);
+    document.body.appendChild(box);
+  } catch (e) { document.getElementById('tl').innerHTML = '<b style="color:#c92a2a">검수용 웹을 못 열었어요</b><br>' + esc(e.message || e); }
+})();
+</script></body></html>
