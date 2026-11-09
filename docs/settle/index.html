@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1021-80';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1109-81';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -2617,6 +2617,10 @@ async function roFile(file){
 // 시트(구분)별 반영처: 개별정산서 환수차감 / 팀결산 — 메뉴에서 정한 값(R.summary.kinds)이 우선, 없으면 이름에 '이전'이 있으면 팀결산
 const RO_KINDS = { '개별':{label:'개별정산서 환수차감', cls:'p'}, '팀결산':{label:'팀결산 (이전개통)', cls:'a'} };
 const roKind = (R, c) => (R&&R.summary&&R.summary.kinds&&R.summary.kinds[c]) || (/이전/.test(c)?'팀결산':'개별');
+// 화면 표시용: 팀결산 쪽이라도 시트 이름에 '퇴사'/'결산제외'가 있으면 '팀결산 제외'로 보여줌 (계산은 그대로 — 팀손익에서 퇴사자는 따로 빠짐)
+const roOut = c => /퇴사|결산제외/.test(String(c||''));
+const RO_OUT = {label:'팀결산 제외 (퇴사자 · 회사비용)', cls:'x'};
+const roKindView = (R, c) => { const k=roKind(R,c); return (k==='팀결산'&&roOut(c)) ? RO_OUT : RO_KINDS[k]; };
 const roLive = rows => (rows||[]).filter(r=>!r.ex);
 function roSetKind(c,v){ const R=state.ro.regions[state.roRegion]; R.summary=R.summary||{}; R.summary.kinds={...(R.summary.kinds||{}),[c]:v}; renderOccur(); }
 async function roExclude(i){ const R=state.ro.regions[state.roRegion], r=R.rows[i]; if(!r) return;
@@ -2637,9 +2641,9 @@ function renderOccur(){
   if(ed||!R.summary) l+=`<div class="upl" id="roDrop" ${state.editor?'':'style="display:none"'}><b>${reg}</b> 환수리스트 엑셀 <label style="cursor:pointer"><b><u>파일 선택</u></b><input type="file" accept=".xlsx,.xls" style="display:none" onchange="roFile(this.files[0]);this.value=''"></label><div class="sub" style="margin-top:4px">시트별로 구분해서 읽습니다 ('전체' 시트는 건너뜀)${R.summary?' · 다시 올리면 덮어씀':''}</div></div>`;
   const live=roLive(rows), nEx=rows.length-live.length;
   l+=`<div class="block">${secHead('Summary',`${reg} 요약`)}`+cats.map(c=>{ const cr=live.filter(r=>r.cat===c), t=cr.reduce((a,r)=>a+r.amount,0), k=roKind(R,c), cx=rows.filter(r=>r.cat===c&&r.ex).length;
-      const kd= ed ? `<select class="rksel" onchange="roSetKind('${esc(c)}',this.value)">${Object.keys(RO_KINDS).map(x=>`<option value="${x}" ${x===k?'selected':''}>→ ${RO_KINDS[x].label}</option>`).join('')}</select>` : `<span class="rtag ${RO_KINDS[k].cls}">→ ${RO_KINDS[k].label}</span>`;
+      const kd= ed ? `<select class="rksel" onchange="roSetKind('${esc(c)}',this.value)">${Object.keys(RO_KINDS).map(x=>`<option value="${x}" ${x===k?'selected':''}>→ ${x==='팀결산'&&roOut(c)?RO_OUT.label:RO_KINDS[x].label}</option>`).join('')}</select>` : `<span class="rtag ${roKindView(R,c).cls}">→ ${roKindView(R,c).label}</span>`;
       return `<div class="osum"><div class="ot"><b>${esc(roShort(c))}</b>${kd}</div><div class="ov"><span class="sub">${cr.length}건${cx?` · 제외 ${cx}`:''}</span><span class="amt ${t<0?'neg':''} ${cr.length?'':'zero'}">${W(t)}</span></div></div>`; }).join('')
-    +Object.keys(RO_KINDS).map(k=>{ const kr=live.filter(r=>roKind(R,r.cat)===k); return `<div class="osum subr"><div class="ot"><span class="sub">${RO_KINDS[k].label}</span></div><div class="ov"><span class="sub">${kr.length}건</span><span class="amt">${W(kr.reduce((a,r)=>a+r.amount,0))}</span></div></div>`; }).join('')
+    +[{label:RO_KINDS['개별'].label,f:r=>roKind(R,r.cat)==='개별'},{label:RO_KINDS['팀결산'].label,f:r=>roKind(R,r.cat)==='팀결산'&&!roOut(r.cat)},{label:RO_OUT.label,f:r=>roKind(R,r.cat)==='팀결산'&&roOut(r.cat),opt:1}].filter(g=>!g.opt||live.some(g.f)).map(g=>{ const kr=live.filter(g.f); return `<div class="osum subr"><div class="ot"><span class="sub">${g.label}</span></div><div class="ov"><span class="sub">${kr.length}건</span><span class="amt">${W(kr.reduce((a,r)=>a+r.amount,0))}</span></div></div>`; }).join('')
     +`<div class="osum tot"><div class="ot"><b>전체 (제외 빼고)</b></div><div class="ov"><span class="sub">${live.length}건${nEx?` · 제외 ${nEx}건`:''}</span><span class="amt">${W(live.reduce((a,r)=>a+r.amount,0))}</span></div></div>`
     +`<div class="sub" style="padding-top:8px">시트마다 반영처를 정할 수 있고(편집), 건별로 <b>제외</b>할 수 있습니다. 개별정산서 환수차감은 여기서 <b>개별정산서</b>로 지정되고 제외되지 않은 건만 가져갑니다.</div>`+(R.summary&&R.summary.file?`<div class="sub" style="padding-top:8px">파일: ${esc(R.summary.file)}</div>`:'')+`</div>`;
   $('ocol1').innerHTML=l;
