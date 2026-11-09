@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1109-81';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1109-82';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -2619,7 +2619,7 @@ const RO_KINDS = { '개별':{label:'개별정산서 환수차감', cls:'p'}, '�
 const roKind = (R, c) => (R&&R.summary&&R.summary.kinds&&R.summary.kinds[c]) || (/이전/.test(c)?'팀결산':'개별');
 // 화면 표시용: 팀결산 쪽이라도 시트 이름에 '퇴사'/'결산제외'가 있으면 '팀결산 제외'로 보여줌 (계산은 그대로 — 팀손익에서 퇴사자는 따로 빠짐)
 const roOut = c => /퇴사|결산제외/.test(String(c||''));
-const RO_OUT = {label:'팀결산 제외 (퇴사자 · 회사비용)', cls:'x'};
+const RO_OUT = {label:'팀결산 제외 (퇴사자)', cls:'x'};
 const roKindView = (R, c) => { const k=roKind(R,c); return (k==='팀결산'&&roOut(c)) ? RO_OUT : RO_KINDS[k]; };
 const roLive = rows => (rows||[]).filter(r=>!r.ex);
 function roSetKind(c,v){ const R=state.ro.regions[state.roRegion]; R.summary=R.summary||{}; R.summary.kinds={...(R.summary.kinds||{}),[c]:v}; renderOccur(); }
