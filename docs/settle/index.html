@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1110-86';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1110-87';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1938,6 +1938,16 @@ async function lockGuard(month, regions, action){
 const IND_RATE = 40, IND_THRESHOLD = 17000000, IND_BONUS = 2000000;
 const IND_COLS = ['No','정산종류','고객명','속성','명의자연락처','가입서비스','상품명','상품옵션','회선수','셋트유형','협력점','유치자','접수일','개통일','개통상태','접수경로','사은품','상부정산','약정금액','차감내역-사은품','차감내역-물류','차감내역-쿠폰','차감내역-선납','차감내역-할인탭','차감내역-미비서류','차감내역-기타','수납','번들수수료','동판수수료','정산금액','정산 비고'];
 const IND_DED = ['차감내역-사은품','차감내역-물류','차감내역-쿠폰','차감내역-선납','차감내역-할인탭','차감내역-미비서류','차감내역-기타'];
+// 엑셀 머리글 정리: 띄어쓰기·대시 종류·괄호 표기 차이를 맞춤 ('차감내역 - 사은품', '차감내역(사은품)', '차감내역_사은품' → '차감내역-사은품')
+const hNorm = s => String(s==null?'':s).trim().replace(/\s+/g,'').replace(/[\u2010-\u2015\u2212_]/g,'-').replace(/^(.+?)[\(\[](.+)[\)\]]$/,'$1-$2');
+// 머리글이 두 줄(위: '차감내역' 병합 / 아래: '사은품','물류'…)인 파일도 '차감내역-사은품'으로 합쳐서 읽음
+function xlsHeader(a){
+  const h0=(a[0]||[]).map(x=>String(x==null?'':x).trim()), r1=a[1]||[];
+  const sub=r1.map(x=>String(x==null?'':x).trim());
+  const twoRow = a.length>1 && !/^\d+$/.test(sub[0]||'') && sub.some(Boolean) && !r1.some(x=>typeof x==='number'||x instanceof Date);
+  if(!twoRow) return h0.map(hNorm);
+  let grp=''; return h0.map((h,i)=>{ if(h) grp=h; const t=sub[i]; if(!t||t===h) return hNorm(h); return hNorm((h||grp)+'-'+t); });
+}
 async function loadIndiv(month){
   try{
     let d=state.indCache[month];
@@ -1955,9 +1965,9 @@ function indEmpPick(k){ state.indEmp=k; state.indDetailOpen=false; renderIndiv()
 const indKey = n => { let k=normName(n); if(/^(퇴|휴)/.test(k)&&k.length>=3) k=k.slice(1); return k; };
 function parseIndivWorkbook(wb){
   let H=null, aoa=null;
-  for(const nm of wb.SheetNames){ const a=XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,defval:''}); if(!a.length) continue; const h=a[0].map(x=>String(x||'').trim()); if(h.includes('유치자')&&h.includes('정산종류')&&h.includes('약정금액')){ H=h; aoa=a; break; } }
+  for(const nm of wb.SheetNames){ const a=XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,defval:''}); if(!a.length) continue; const h=xlsHeader(a); if(h.includes('유치자')&&h.includes('정산종류')&&h.includes('약정금액')){ H=h; aoa=a; break; } }
   if(!H) throw new Error('정산리스트 시트를 찾지 못했습니다 (유치자·정산종류·약정금액 열 필요)');
-  const col=n=>H.indexOf(n); const g=(r,n)=>col(n)<0?'':String(r[col(n)]==null?'':r[col(n)]).trim();
+  const col=n=>H.indexOf(hNorm(n)); const g=(r,n)=>col(n)<0?'':String(r[col(n)]==null?'':r[col(n)]).trim();
   const num=(r,n)=>col(n)<0?0:(Number(String(r[col(n)]==null?'':r[col(n)]).replace(/,/g,''))||0);
   const dt=(r,n)=>{ if(col(n)<0) return ''; const v=r[col(n)]; if(v==null||v==='') return ''; if(v instanceof Date) return v.toISOString().slice(0,10); if(typeof v==='number'){ const d=XLSX.SSF.parse_date_code(v); return d?`${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`:''; } const m=String(v).match(/(\d{4})-(\d{2})-(\d{2})/); return m?m[0]:String(v).slice(0,10); };
   const DED=IND_DED;
@@ -1974,7 +1984,7 @@ function parseIndivWorkbook(wb){
     // '환수' 행은 합산하지 않음 — 환수차감은 환수발생 메뉴에서 가져옴
   });
   const out=Object.values(byEmp).sort((a,b)=>a.emp.localeCompare(b.emp,'ko'));
-  return {rows:out, details, total:rows.length};
+  return {rows:out, details, total:rows.length, dedMissing:IND_DED.filter(k=>col(k)<0), heads:H.filter(Boolean)};
 }
 async function indFile(file){
   if(!file) return; if(!(await lockGuard(state.ind.month,[state.indRegion],'upload'))) return;
@@ -1982,7 +1992,7 @@ async function indFile(file){
   const reg=state.indRegion, R=state.ind.regions[reg];
   try{
     const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true});
-    const {rows,details,total}=parseIndivWorkbook(wb);
+    const {rows,details,total,dedMissing,heads}=parseIndivWorkbook(wb);
     if(!state.edit) setEdit(true);
     // 기존 토스비 유지
     const prevToss={}, prevMan={}; (R.rows||[]).forEach(r=>{ prevToss[indKey(r.emp)]=r.toss; prevMan[indKey(r.emp)]=r.manual; });
@@ -1994,7 +2004,8 @@ async function indFile(file){
       Object.keys(occ).filter(k=>!seen[k]).forEach(k=>rows.push({emp:occ[k].emp,fee:0,cost:0,extra:0,refund:occ[k].amount,toss:0,n:0,nIlban:0,note:'',manual:{}})); R.summary.refundFrom='환수발생'; }
     state.indDetails={}; details.forEach(d=>{ const k=reg+'|'+indKey(d['유치자']); (state.indDetails[k]=state.indDetails[k]||[]).push(d); });
     state.indEmp=null; renderIndiv();
-    toast(`${reg} ${total}행 읽음 → 유치자 ${rows.length}명`);
+    if(dedMissing.length) toast(`${reg} ${total}행 읽음 — ⚠ 비용(차감내역) 열을 못 찾았습니다: ${dedMissing.join(', ')} · 엑셀 머리글: ${heads.join(', ')}`, true);
+    else toast(`${reg} ${total}행 읽음 → 유치자 ${rows.length}명`);
   }catch(e){ toast('엑셀 읽기 실패: '+e.message, true); }
 }
 // 수기 항목: R.summary.extras = [{name, sign(+1 가산/-1 차감)}], 사람별 값은 r.manual = {name: amount} (시트 '비고'에 JSON 저장)
@@ -2741,9 +2752,9 @@ async function loadClose(month){
 /* 파일 파싱: 개별정산서와 같은 어드민 정산리스트 (전사) → 협력점별 · 협력점×유치자별 집계 */
 function parseCloseWorkbook(wb){
   let H=null, aoa=null;
-  for(const nm of wb.SheetNames){ const a=XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,defval:''}); if(!a.length) continue; const h=a[0].map(x=>String(x||'').trim()); if(h.includes('협력점')&&h.includes('유치자')&&h.includes('정산종류')&&h.includes('약정금액')){ H=h; aoa=a; break; } }
+  for(const nm of wb.SheetNames){ const a=XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,defval:''}); if(!a.length) continue; const h=xlsHeader(a); if(h.includes('협력점')&&h.includes('유치자')&&h.includes('정산종류')&&h.includes('약정금액')){ H=h; aoa=a; break; } }
   if(!H) throw new Error('결산데이터 시트를 찾지 못했습니다 (협력점·유치자·정산종류·약정금액 열 필요)');
-  const col=n=>H.indexOf(n);
+  const col=n=>H.indexOf(hNorm(n));
   const g=(r,n)=>col(n)<0?'':String(r[col(n)]==null?'':r[col(n)]).trim();
   const num=(r,n)=>col(n)<0?0:(Number(String(r[col(n)]==null?'':r[col(n)]).replace(/,/g,''))||0);
   const year=(r,n)=>{ if(col(n)<0) return 0; const v=r[col(n)]; if(v==null||v==='') return 0; if(v instanceof Date) return v.getFullYear(); if(typeof v==='number'){ const d=XLSX.SSF.parse_date_code(v); return d?d.y:0; } const m=String(v).match(/(\d{4})-\d{2}/); return m?+m[1]:0; };
