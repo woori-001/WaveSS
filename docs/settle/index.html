@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1109-83';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1110-84';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1442,18 +1442,26 @@ function upRegionOf(coop, emp){
   const e=findEmp(emp); if(e){ const r=region(e.team); if(rs.includes(r)) return r; }
   return '';
 }
+// 마이너스 보정: 같은 고객(지역+고객명+유치자) 정산금액 합계가 마이너스면 0원이 되게 + 보정 (메인+추가티비 합산이 플러스면 보정 안 함)
+const upKey = d => (d.region||'')+'|'+String(d.customer||'').replace(/\s+/g,'')+'|'+String(d.emp||'').replace(/\s+/g,'');
+function upAdjList(det){
+  const g={}; (det||[]).forEach(d=>{ const k=upKey(d); g[k]=g[k]||{region:d.region||'',customer:d.customer,emp:d.emp,n:0,sum:0,items:[]}; g[k].n++; g[k].sum+=Number(d.amount)||0; g[k].items.push(d); });
+  return Object.values(g).filter(x=>x.sum<0).map(x=>Object.assign(x,{adj:-x.sum}));
+}
+const upAdjSum = (det, r) => upAdjList(det).filter(x=>r===undefined||x.region===r).reduce((a,x)=>a+x.adj,0);
+const upTotal = (det, r) => (det||[]).filter(d=>r===undefined||(d.region||'')===r).reduce((a,d)=>a+(Number(d.amount)||0),0) + upAdjSum(det, r);
 function upCompute(){
   const U=state.up; U.rows=[];
   upRegions().forEach(r=>{
     const det=(U.details||[]).filter(d=>d.region===r); if(!det.length) return;
-    const total=det.reduce((a,d)=>a+(Number(d.amount)||0),0), n=det.length, c=U.cfg[r]||{mode:'single',teams:teamsOfRegion(r)};
+    const total=upTotal(det), n=det.length, c=U.cfg[r]||{mode:'single',teams:teamsOfRegion(r)};
     const ts=teamsOfRegion(r);
     if(ts.length>1 && c.mode==='split'){ const a=Math.round(total/2), b=total-a;
       U.rows.push({region:r,team:c.teams[0]||ts[0],ratio:50,count:n,amount:a,mode:'split',note:''},{region:r,team:c.teams[1]||ts[1],ratio:50,count:n,amount:b,mode:'split',note:''}); }
     else U.rows.push({region:r,team:c.teams[0]||ts[0]||r,ratio:100,count:n,amount:total,mode:'single',note:''});
   });
   const other=(U.details||[]).filter(d=>!d.region);
-  if(other.length) U.rows.push({region:'',team:'미분류',ratio:100,count:other.length,amount:other.reduce((a,d)=>a+(Number(d.amount)||0),0),mode:'single',note:'협력점/유치자로 지역을 찾지 못함'});
+  if(other.length) U.rows.push({region:'',team:'미분류',ratio:100,count:other.length,amount:upTotal(other),mode:'single',note:'협력점/유치자로 지역을 찾지 못함'});
 }
 function parseUpWorkbook(wb){
   const details=[]; const sums={};
@@ -1485,8 +1493,8 @@ async function upFile(file){
     state.up.details=details; upCompute(); state.upDetailOpen=false; renderUp();
     const total=details.reduce((a,d)=>a+d.amount,0), sheetTotal=Object.values(sums).reduce((a,b)=>a+b,0);
     const byR=upRegions().map(r=>{ const ds=details.filter(d=>d.region===r); return ds.length?`${r} ${ds.length}건 ${won(ds.reduce((a,d)=>a+d.amount,0))}`:null; }).filter(Boolean).join(' · ');
-    const un=details.filter(d=>!d.region).length;
-    let msg=`읽기 완료: ${byR}`+(un?` · 미분류 ${un}건`:'');
+    const un=details.filter(d=>!d.region).length, adjL=upAdjList(details);
+    let msg=`읽기 완료: ${byR}`+(un?` · 미분류 ${un}건`:'')+(adjL.length?` · 마이너스 보정 ${adjL.length}건 +${won(adjL.reduce((a,x)=>a+x.adj,0))}`:'');
     if(Object.keys(sums).length){ if(sheetTotal===total) msg+=' (엑셀 합계와 일치)'; else { toast(msg+` — 엑셀 시트 합계 ${won(sheetTotal)} 와 차이(${won(total)}), 확인 필요`, true); return; } }
     toast(msg, !!un);
   }catch(e){ toast('엑셀 읽기 실패: '+e.message, true); }
@@ -1497,19 +1505,21 @@ function renderUp(){
   $('dh_title').textContent=`${U.month} 업셀링 팀결산 반영`;
   $('dh_diff').style.display='none';
   $('dh_saved').textContent=U.updatedAt?`마지막 저장 ${U.updatedAt} · ${String(U.updatedBy||'').split('@')[0]}`:'';
-  const total=det.reduce((a,d)=>a+(Number(d.amount)||0),0);
+  const raw=det.reduce((a,d)=>a+(Number(d.amount)||0),0), adjL=upAdjList(det), adjT=adjL.reduce((a,x)=>a+x.adj,0), total=raw+adjT;
+  const adjOf={}; adjL.forEach(x=>adjOf[upKey(x)]=x);
   // 왼쪽: 지역별 반영 방식 + 합계
   let l=`<div class="block">${secHead('Method','지역별 반영 방식')}`;
   upRegions().forEach(r=>{
     const ts=teamsOfRegion(r), c=U.cfg[r]||{mode:'single',teams:ts}, ds=det.filter(d=>d.region===r);
     const sel=i=>`<select onchange="upTeam('${r}',${i},this.value)">${ts.map(t=>`<option ${t===c.teams[i]?'selected':''}>${esc(t)}</option>`).join('')}</select>`;
-    l+=`<div class="rg"><div class="rh"><b>${esc(r)}</b><span class="sub">${ds.length}건 · ${won(ds.reduce((a,d)=>a+d.amount,0))}</span></div>`;
+    const ra=upAdjSum(det,r);
+    l+=`<div class="rg"><div class="rh"><b>${esc(r)}</b><span class="sub">${ds.length}건 · ${won(upTotal(det,r))}${ra?` <span style="color:var(--ink)">(보정 +${won(ra)} 포함)</span>`:''}</span></div>`;
     if(ts.length<=1) l+=`<div class="sub">${esc(ts[0]||r)} 전부 반영</div>`;
     else if(ed) l+=`<div class="mode" style="flex-direction:column;align-items:stretch;margin:4px 0 0"><label class="${c.mode==='single'?'on':''}"><input type="radio" name="upm_${r}" ${c.mode==='single'?'checked':''} onchange="upMode('${r}','single')"><span class="t">한 팀 전부 반영</span><span class="sels">${sel(0)}</span></label><label class="${c.mode==='split'?'on':''}"><input type="radio" name="upm_${r}" ${c.mode==='split'?'checked':''} onchange="upMode('${r}','split')"><span class="t">두 팀 5:5 반영</span><span class="sels">${sel(0)} ${sel(1)}</span></label></div>`;
     else l+=`<div class="sub">${c.mode==='split'?'두 팀 5:5 반영':'한 팀 전부 반영'} — ${esc(U.rows.filter(x=>x.region===r).map(x=>x.team).join(' · ')||'-')}</div>`;
     l+=`</div>`;
   });
-  l+=`</div><div class="block">${secHead('Summary','결산 반영 합계')}<div class="sum"><span>건수</span><span class="amt">${det.length}건</span></div><div class="sum total"><b>결산 반영금액</b><span class="amt">${won(total)}</span></div><div class="sub" style="padding-top:8px">정산금액(수수료 − 쿠폰)의 합계</div></div>`;
+  l+=`</div><div class="block">${secHead('Summary','결산 반영 합계')}<div class="sum"><span>건수</span><span class="amt">${det.length}건</span></div>${adjT?`<div class="sum"><span>정산금액 합계</span><span class="amt">${won(raw)}</span></div><div class="sum"><span>마이너스 보정 (${adjL.length}건)</span><span class="amt">+${won(adjT)}</span></div>`:''}<div class="sum total"><b>결산 반영금액</b><span class="amt">${won(total)}</span></div><div class="sub" style="padding-top:8px">정산금액(수수료 − 쿠폰)의 합계 · 같은 고객 합산이 마이너스면 0원까지 보정</div></div>`;
   $('ucol1').innerHTML=l;
   // 오른쪽
   let h='';
@@ -1517,13 +1527,19 @@ function renderUp(){
   h+=`<div class="block">${secHead('Team allocation','팀결산 반영')}<div class="sk hd"><span>반영 팀</span><span class="r">비율</span><span class="r">건수</span><span class="r">결산 반영금액</span></div>`;
   h+= U.rows.length ? U.rows.map(r=>`<div class="sk"><span><span class="tag">${esc(r.team)}</span>${r.note?` <span class="sub">${esc(r.note)}</span>`:''}</span><span class="r">${r.ratio}%</span><span class="r">${r.count}</span><span class="amt">${won(r.amount)}</span></div>`).join('')+`<div class="sk tot"><span>합계</span><span></span><span class="r">${det.length}</span><span class="amt">${won(U.rows.reduce((a,r)=>a+r.amount,0))}</span></div>` : `<div class="empty-row">${U.hidden?`${esc(U.month)} 업셀링은 아직 공개되지 않았습니다.`:state.editor?'엑셀을 업로드하면 반영 금액이 계산됩니다.':'해당 건이 없습니다.'}</div>`;
   h+=`</div>`;
+  if(adjL.length){
+    h+=`<div class="block">${secHead('Minus adjustment','마이너스 보정',adjL.length)}<div class="udet hd" style="grid-template-columns:60px 90px 90px minmax(0,1fr) 100px 100px"><span>지역</span><span>고객명</span><span>유치자</span><span>내역</span><span class="r">합산 정산금액</span><span class="r">보정금액</span></div>`
+      +adjL.map(x=>`<div class="udet" style="grid-template-columns:60px 90px 90px minmax(0,1fr) 100px 100px"><span>${esc(x.region||'미분류')}</span><span>${esc(x.customer)}</span><span>${esc(x.emp)}</span><span class="sub">${x.items.map(d=>esc(d.option)+' '+(Number(d.amount)||0).toLocaleString('ko-KR')).join(' / ')}</span><span class="r" style="color:var(--danger)">${x.sum.toLocaleString('ko-KR')}</span><span class="r"><b>+${x.adj.toLocaleString('ko-KR')}</b></span></div>`).join('')
+      +`<div class="udet" style="grid-template-columns:60px 90px 90px minmax(0,1fr) 100px 100px;border-bottom:0"><b>합계</b><span></span><span></span><span></span><span></span><span class="r"><b>+${adjT.toLocaleString('ko-KR')}</b></span></div></div>`;
+  }
   if(det.length){
-    // 유치자별 (검토용)
+    // 유치자별 (검토용) — 보정 포함
     const byEmp={}; det.forEach(d=>{ const k=(d.region||'미분류')+'|'+(d.emp||'(미지정)'); byEmp[k]=byEmp[k]||{region:d.region||'미분류',emp:d.emp||'(미지정)',n:0,amt:0}; byEmp[k].n++; byEmp[k].amt+=d.amount; });
+    adjL.forEach(x=>{ const k=(x.region||'미분류')+'|'+(x.emp||'(미지정)'); if(byEmp[k]) byEmp[k].amt+=x.adj; });
     const list=Object.values(byEmp).sort((a,b)=>a.region.localeCompare(b.region)||b.n-a.n);
     h+=`<div class="block">${secHead('By salesperson','유치자별 (검토용)',list.length)}<div class="emp" style="border-bottom:1px solid var(--ink-l)"><span class="cap" style="letter-spacing:.06em;color:var(--tx3)">유치자</span><span class="cap r" style="letter-spacing:.06em;color:var(--tx3)">건수</span><span class="cap r" style="letter-spacing:.06em;color:var(--tx3)">정산금액</span></div>${list.map(x=>{ const e=findEmp(x.emp); return `<div class="emp"><span><span class="tag">${esc(x.region)}</span> ${esc(e?empLabel(e):x.emp)}${e?'':' <span class="warn" style="font-size:12px;color:var(--danger)">미등록</span>'}</span><span class="r">${x.n}</span><span class="r">${won(x.amt)}</span></div>`; }).join('')}</div>`;
     h+=`<div class="block"><button class="toggle" onclick="state.upDetailOpen=!state.upDetailOpen;renderUp()">${state.upDetailOpen?'▾':'▸'} 건별 상세 ${det.length}건</button>`;
-    if(state.upDetailOpen) h+=`<div class="udet hd"><span>지역</span><span>고객명</span><span>옵션</span><span>개통일</span><span>유치자</span><span class="r">수수료</span><span class="r">정산금액</span></div>`+det.map(d=>`<div class="udet"><span>${esc(d.region||'미분류')}</span><span>${esc(d.customer)}</span><span>${esc(d.option)}</span><span>${esc(d.open)}</span><span>${esc(d.emp)}</span><span class="r">${d.fee.toLocaleString('ko-KR')}</span><span class="r">${d.amount.toLocaleString('ko-KR')}</span></div>`).join('');
+    if(state.upDetailOpen) h+=`<div class="udet hd"><span>지역</span><span>고객명</span><span>옵션</span><span>개통일</span><span>유치자</span><span class="r">수수료</span><span class="r">정산금액</span></div>`+det.map(d=>`<div class="udet"><span>${esc(d.region||'미분류')}</span><span>${esc(d.customer)}</span><span>${esc(d.option)}</span><span>${esc(d.open)}</span><span>${esc(d.emp)}</span><span class="r">${d.fee.toLocaleString('ko-KR')}</span><span class="r">${d.amount.toLocaleString('ko-KR')}${(adjOf[upKey(d)]&&d.amount<0)?' <span style="color:var(--danger);font-size:11px">보정</span>':''}</span></div>`).join('');
     h+=`</div>`;
   }
   $('ucol2').innerHTML=h;
@@ -1541,7 +1557,7 @@ async function saveUp(){
 }
 async function exportUpPng(){
   if(!state.up) return; if(state.edit){ toast('저장 후 내보내세요.', true); return; }
-  const U=state.up, det=U.details||[], total=det.reduce((a,d)=>a+d.amount,0); const doc=$('doc');
+  const U=state.up, det=U.details||[], total=upTotal(det); const doc=$('doc');
   doc.innerHTML=`<div style="display:flex;align-items:baseline;gap:12px;margin-bottom:22px"><span style="font-size:46px;font-weight:200;color:var(--ink);line-height:1">${esc(U.month.slice(5))}</span><span style="display:flex;flex-direction:column;line-height:1.25"><span class="cap" style="letter-spacing:.22em">${ENF[+U.month.slice(5)-1]} ${esc(U.month.slice(0,4))}</span><span style="font-size:13px;color:var(--tx2)">${esc(U.month)} 업셀링 팀결산 반영</span></span></div>`
     +`<div class="block" style="max-width:640px">${secHead('Team allocation','팀결산 반영')}<div class="sk hd"><span>반영 팀</span><span class="r">비율</span><span class="r">건수</span><span class="r">결산 반영금액</span></div>${U.rows.map(r=>`<div class="sk"><span><span class="tag">${esc(r.team)}</span></span><span class="r">${r.ratio}%</span><span class="r">${r.count}</span><span class="amt">${won(r.amount)}</span></div>`).join('')}<div class="sk tot"><span>합계</span><span></span><span class="r">${det.length}</span><span class="amt">${won(total)}</span></div></div>`;
   doc.classList.add('capture');
