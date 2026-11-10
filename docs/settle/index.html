@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1110-85';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1110-86';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1442,11 +1442,11 @@ function upRegionOf(coop, emp){
   const e=findEmp(emp); if(e){ const r=region(e.team); if(rs.includes(r)) return r; }
   return '';
 }
-// 마이너스 보정: 같은 고객(지역+고객명+유치자) 정산금액 합계가 마이너스면 0원이 되게 + 보정 (메인+추가티비 합산이 플러스면 보정 안 함)
+// 마이너스 보정: (추단) 업셀링 건이 마이너스면 그 건만 0원이 되게 + 보정 (메인티비와 상관없이 한 건씩)
 const upKey = d => (d.region||'')+'|'+String(d.customer||'').replace(/\s+/g,'')+'|'+String(d.emp||'').replace(/\s+/g,'');
+const upAdjTarget = d => /^\s*\(추단\)/.test(String(d.option||'')) && (Number(d.amount)||0) < 0;
 function upAdjList(det){
-  const g={}; (det||[]).forEach(d=>{ const k=upKey(d); g[k]=g[k]||{region:d.region||'',customer:d.customer,emp:d.emp,n:0,sum:0,items:[]}; g[k].n++; g[k].sum+=Number(d.amount)||0; g[k].items.push(d); });
-  return Object.values(g).filter(x=>x.sum<0).map(x=>Object.assign(x,{adj:-x.sum}));
+  return (det||[]).filter(upAdjTarget).map(d=>({region:d.region||'',customer:d.customer,emp:d.emp,n:1,sum:Number(d.amount)||0,adj:-(Number(d.amount)||0),items:[d]}));
 }
 const upAdjSum = (det, r) => upAdjList(det).filter(x=>r===undefined||x.region===r).reduce((a,x)=>a+x.adj,0);
 const upTotal = (det, r) => (det||[]).filter(d=>r===undefined||(d.region||'')===r).reduce((a,d)=>a+(Number(d.amount)||0),0) + upAdjSum(det, r);
@@ -1506,7 +1506,7 @@ function renderUp(){
   $('dh_diff').style.display='none';
   $('dh_saved').textContent=U.updatedAt?`마지막 저장 ${U.updatedAt} · ${String(U.updatedBy||'').split('@')[0]}`:'';
   const raw=det.reduce((a,d)=>a+(Number(d.amount)||0),0), adjL=upAdjList(det), adjT=adjL.reduce((a,x)=>a+x.adj,0), total=raw+adjT;
-  const adjOf={}; adjL.forEach(x=>adjOf[upKey(x)]=x);
+  const adjSet=new Set(adjL.map(x=>x.items[0]));
   // 왼쪽: 지역별 반영 방식 + 합계
   let l=`<div class="block">${secHead('Method','지역별 반영 방식')}`;
   upRegions().forEach(r=>{
@@ -1519,7 +1519,7 @@ function renderUp(){
     else l+=`<div class="sub">${c.mode==='split'?'두 팀 5:5 반영':'한 팀 전부 반영'} — ${esc(U.rows.filter(x=>x.region===r).map(x=>x.team).join(' · ')||'-')}</div>`;
     l+=`</div>`;
   });
-  l+=`</div><div class="block">${secHead('Summary','결산 반영 합계')}<div class="sum"><span>건수</span><span class="amt">${det.length}건</span></div>${adjT?`<div class="sum"><span>정산금액 합계</span><span class="amt">${won(raw)}</span></div><div class="sum"><span>마이너스 보정 (${adjL.length}건)</span><span class="amt">+${won(adjT)}</span></div>`:''}<div class="sum total"><b>결산 반영금액</b><span class="amt">${won(total)}</span></div><div class="sub" style="padding-top:8px">정산금액(수수료 − 쿠폰)의 합계 · 같은 고객 합산이 마이너스면 0원까지 보정</div></div>`;
+  l+=`</div><div class="block">${secHead('Summary','결산 반영 합계')}<div class="sum"><span>건수</span><span class="amt">${det.length}건</span></div>${adjT?`<div class="sum"><span>정산금액 합계</span><span class="amt">${won(raw)}</span></div><div class="sum"><span>마이너스 보정 (${adjL.length}건)</span><span class="amt">+${won(adjT)}</span></div>`:''}<div class="sum total"><b>결산 반영금액</b><span class="amt">${won(total)}</span></div><div class="sub" style="padding-top:8px">정산금액(수수료 − 쿠폰)의 합계 · (추단) 건이 마이너스면 그 건만 0원까지 보정</div></div>`;
   $('ucol1').innerHTML=l;
   // 오른쪽
   let h='';
@@ -1530,7 +1530,7 @@ function renderUp(){
   if(U.rows.length && det.length && savedT!==total) h+=`<div class="sub" style="color:var(--danger);padding:8px 4px 0">⚠ 저장된 팀결산 금액(${won(savedT)})이 지금 계산(${won(total)})과 ${won(total-savedT)} 다릅니다 — 보정 규칙이 생기기 전에 저장된 달입니다. ${state.editor?'편집 → 저장 하면 다시 계산됩니다.':''}</div>`;
   h+=`</div>`;
   if(adjL.length){
-    h+=`<div class="block">${secHead('Minus adjustment','마이너스 보정',adjL.length)}<div class="udet hd" style="grid-template-columns:60px 90px 90px minmax(0,1fr) 100px 100px"><span>지역</span><span>고객명</span><span>유치자</span><span>내역</span><span class="r">합산 정산금액</span><span class="r">보정금액</span></div>`
+    h+=`<div class="block">${secHead('Minus adjustment','마이너스 보정',adjL.length)}<div class="udet hd" style="grid-template-columns:60px 90px 90px minmax(0,1fr) 100px 100px"><span>지역</span><span>고객명</span><span>유치자</span><span>내역</span><span class="r">정산금액</span><span class="r">보정금액</span></div>`
       +adjL.map(x=>`<div class="udet" style="grid-template-columns:60px 90px 90px minmax(0,1fr) 100px 100px"><span>${esc(x.region||'미분류')}</span><span>${esc(x.customer)}</span><span>${esc(x.emp)}</span><span class="sub">${x.items.map(d=>esc(d.option)+' '+(Number(d.amount)||0).toLocaleString('ko-KR')).join(' / ')}</span><span class="r" style="color:var(--danger)">${x.sum.toLocaleString('ko-KR')}</span><span class="r"><b>+${x.adj.toLocaleString('ko-KR')}</b></span></div>`).join('')
       +`<div class="udet" style="grid-template-columns:60px 90px 90px minmax(0,1fr) 100px 100px;border-bottom:0"><b>합계</b><span></span><span></span><span></span><span></span><span class="r"><b>+${adjT.toLocaleString('ko-KR')}</b></span></div></div>`;
   }
@@ -1541,7 +1541,7 @@ function renderUp(){
     const list=Object.values(byEmp).sort((a,b)=>a.region.localeCompare(b.region)||b.n-a.n);
     h+=`<div class="block">${secHead('By salesperson','유치자별 (검토용)',list.length)}<div class="emp" style="border-bottom:1px solid var(--ink-l)"><span class="cap" style="letter-spacing:.06em;color:var(--tx3)">유치자</span><span class="cap r" style="letter-spacing:.06em;color:var(--tx3)">건수</span><span class="cap r" style="letter-spacing:.06em;color:var(--tx3)">정산금액</span></div>${list.map(x=>{ const e=findEmp(x.emp); return `<div class="emp"><span><span class="tag">${esc(x.region)}</span> ${esc(e?empLabel(e):x.emp)}${e?'':' <span class="warn" style="font-size:12px;color:var(--danger)">미등록</span>'}</span><span class="r">${x.n}</span><span class="r">${won(x.amt)}</span></div>`; }).join('')}</div>`;
     h+=`<div class="block"><button class="toggle" onclick="state.upDetailOpen=!state.upDetailOpen;renderUp()">${state.upDetailOpen?'▾':'▸'} 건별 상세 ${det.length}건</button>`;
-    if(state.upDetailOpen) h+=`<div class="udet hd"><span>지역</span><span>고객명</span><span>옵션</span><span>개통일</span><span>유치자</span><span class="r">수수료</span><span class="r">정산금액</span></div>`+det.map(d=>`<div class="udet"><span>${esc(d.region||'미분류')}</span><span>${esc(d.customer)}</span><span>${esc(d.option)}</span><span>${esc(d.open)}</span><span>${esc(d.emp)}</span><span class="r">${d.fee.toLocaleString('ko-KR')}</span><span class="r">${d.amount.toLocaleString('ko-KR')}${(adjOf[upKey(d)]&&d.amount<0)?' <span style="color:var(--danger);font-size:11px">보정</span>':''}</span></div>`).join('');
+    if(state.upDetailOpen) h+=`<div class="udet hd"><span>지역</span><span>고객명</span><span>옵션</span><span>개통일</span><span>유치자</span><span class="r">수수료</span><span class="r">정산금액</span></div>`+det.map(d=>`<div class="udet"><span>${esc(d.region||'미분류')}</span><span>${esc(d.customer)}</span><span>${esc(d.option)}</span><span>${esc(d.open)}</span><span>${esc(d.emp)}</span><span class="r">${d.fee.toLocaleString('ko-KR')}</span><span class="r">${d.amount.toLocaleString('ko-KR')}${adjSet.has(d)?' <span style="color:var(--danger);font-size:11px">보정</span>':''}</span></div>`).join('');
     h+=`</div>`;
   }
   $('ucol2').innerHTML=h;
