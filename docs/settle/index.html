@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1110-84';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1110-85';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1526,6 +1526,8 @@ function renderUp(){
   if(ed||!det.length) h+=`<div class="upl" id="upDrop" ${state.editor?'':'style="display:none"'}>엑셀 파일을 여기에 끌어다 놓거나 <label style="cursor:pointer"><b><u>파일 선택</u></b><input type="file" accept=".xlsx,.xls" style="display:none" onchange="upFile(this.files[0]);this.value=''"></label><div class="sub" style="margin-top:4px">업셀링 정산리스트(.xlsx) — 시트가 나뉘어 있어도 전부 합쳐서 협력점·유치자로 지역을 나눕니다${det.length?' · 다시 올리면 현재 내용을 덮어씁니다':''}</div></div>`;
   h+=`<div class="block">${secHead('Team allocation','팀결산 반영')}<div class="sk hd"><span>반영 팀</span><span class="r">비율</span><span class="r">건수</span><span class="r">결산 반영금액</span></div>`;
   h+= U.rows.length ? U.rows.map(r=>`<div class="sk"><span><span class="tag">${esc(r.team)}</span>${r.note?` <span class="sub">${esc(r.note)}</span>`:''}</span><span class="r">${r.ratio}%</span><span class="r">${r.count}</span><span class="amt">${won(r.amount)}</span></div>`).join('')+`<div class="sk tot"><span>합계</span><span></span><span class="r">${det.length}</span><span class="amt">${won(U.rows.reduce((a,r)=>a+r.amount,0))}</span></div>` : `<div class="empty-row">${U.hidden?`${esc(U.month)} 업셀링은 아직 공개되지 않았습니다.`:state.editor?'엑셀을 업로드하면 반영 금액이 계산됩니다.':'해당 건이 없습니다.'}</div>`;
+  const savedT=U.rows.reduce((a,r)=>a+(Number(r.amount)||0),0);
+  if(U.rows.length && det.length && savedT!==total) h+=`<div class="sub" style="color:var(--danger);padding:8px 4px 0">⚠ 저장된 팀결산 금액(${won(savedT)})이 지금 계산(${won(total)})과 ${won(total-savedT)} 다릅니다 — 보정 규칙이 생기기 전에 저장된 달입니다. ${state.editor?'편집 → 저장 하면 다시 계산됩니다.':''}</div>`;
   h+=`</div>`;
   if(adjL.length){
     h+=`<div class="block">${secHead('Minus adjustment','마이너스 보정',adjL.length)}<div class="udet hd" style="grid-template-columns:60px 90px 90px minmax(0,1fr) 100px 100px"><span>지역</span><span>고객명</span><span>유치자</span><span>내역</span><span class="r">합산 정산금액</span><span class="r">보정금액</span></div>`
@@ -1549,6 +1551,7 @@ function upMode(r,m){ state.up.cfg[r]=state.up.cfg[r]||{teams:teamsOfRegion(r)};
 function upTeam(r,i,t){ state.up.cfg[r]=state.up.cfg[r]||{mode:'single',teams:teamsOfRegion(r)}; state.up.cfg[r].teams[i]=t; upCompute(); renderUp(); }
 async function saveUp(){
   if(!(await lockGuard(state.up.month,ADJ_REGIONS,'save'))) return;
+  if((state.up.details||[]).length) upCompute();   // 저장 직전 다시 계산 (마이너스 보정 등 최신 규칙 반영)
   try{ const d=await api('saveUp', state.up.month, state.up.rows, state.up.details);
     d.cfg=state.up.cfg;
     state.upCache={}; state.upCache[d.month]=d; state.up=clone(d); state.upSaved=clone(d); state.upMonths=d.months||[];
