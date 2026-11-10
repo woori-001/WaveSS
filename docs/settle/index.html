@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1110-87';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1110-88';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -2436,7 +2436,11 @@ async function rfFile(file){
   }catch(e){ toast('엑셀 읽기 실패: '+e.message, true); }
 }
 // 판정
-const rfRegionOf = d => region(String(d||'').replace(/영업팀|팀/g,'')) || String(d||'');
+// 환수 건의 지역: 유치부서에 '시흥'/'천안'이 들어 있으면 그 지역('시흥영업1팀(MJ320010)' → 시흥),
+// 유치부서가 비었거나 '영업지원팀' 등이면 사원관리의 유치자 팀으로 판단
+const rfRegionOf = (d, emp) => { const s=String(d||''); for(const r of ADJ_REGIONS) if(s.indexOf(r)>=0) return r;
+  const e=emp?findEmp(emp):null; if(e){ const r=region(e.team); if(ADJ_REGIONS.includes(r)) return r; }
+  return region(s.replace(/영업팀|팀/g,'')) || s; };
 const RF_CATS = { '개별':{label:'26년 개통 · 개별정산', short:'개별', cls:'p'}, '팀결산':{label:'26년 이전개통 · 팀결산', short:'팀결산', cls:'a'}, '제외':{label:'26년 이전개통 퇴사자 · 팀결산 제외', short:'제외', cls:'x'} };
 function rfAutoCat(r, month){
   const yr=+String(month||'').slice(0,4); const oy=+String(r.open||'').slice(0,4);
@@ -2451,7 +2455,7 @@ function rfCalc(){
   const isMgmt=r=>RF_MGMT.test(r.collector);
   const live=rows.filter(r=>!isMgmt(r));
   const adjRows=live.filter(r=>r.cat==='개별'&&!r.exAdj), teamRows=live.filter(r=>r.cat==='팀결산'&&!r.exAdj), outRows=live.filter(r=>r.cat==='제외');
-  const incRows=live.filter(r=>r.collector&&!r.exInc).map(r=>({...r, incTo: /천안/.test(r.dept)?RF_CHEONAN_TO:r.collector, inc: Math.round(r.paid*RF_RATE/100)}));
+  const incRows=live.filter(r=>r.collector&&!r.exInc).map(r=>({...r, incTo: rfRegionOf(r.dept,r.emp)==='천안'?RF_CHEONAN_TO:r.collector, inc: Math.round(r.paid*RF_RATE/100)}));
   const sum=a=>a.reduce((x,r)=>x+r.paid,0);
   return { rows, adjRows, adjTotal:sum(adjRows), teamRows, teamTotal:sum(teamRows), outRows, outTotal:sum(outRows), incRows, incTotal: incRows.reduce((a,r)=>a+r.inc,0),
     mgmt: rows.filter(isMgmt), noCol: live.filter(r=>!r.collector), exAdj: live.filter(r=>r.exAdj&&r.cat!=='제외'), exInc: live.filter(r=>r.exInc&&r.collector) };
@@ -2479,7 +2483,7 @@ function renderRefund(){
     +`<div class="osum"><div class="ot"><b>환수완료 건</b></div><div class="ov"><span class="amt">${rows.length}건</span></div></div>`
     +sumRow(`${rfCatTag('개별')} 개별 보정`,c.adjRows,c.adjTotal)
     +sumRow(`${rfCatTag('팀결산')} 팀결산 보정`,c.teamRows,c.teamTotal)
-    +scopeRegs().map(rg=>{ const l=c.teamRows.filter(r=>rfRegionOf(r.dept)===rg); return `<div class="osum subr"><div class="ot"><span class="sub">└ ${rg} 팀결산</span></div><div class="ov"><span class="sub">${l.length}건</span><span class="amt ${l.length?'':'zero'}">${W(l.reduce((a,r)=>a+r.paid,0))}</span></div></div>`; }).join('')
+    +scopeRegs().map(rg=>{ const l=c.teamRows.filter(r=>rfRegionOf(r.dept,r.emp)===rg); return `<div class="osum subr"><div class="ot"><span class="sub">└ ${rg} 팀결산</span></div><div class="ov"><span class="sub">${l.length}건</span><span class="amt ${l.length?'':'zero'}">${W(l.reduce((a,r)=>a+r.paid,0))}</span></div></div>`; }).join('')
     +sumRow(`${rfCatTag('제외')} 팀결산 제외`,c.outRows,c.outTotal,'zero')
     +sumRow(`5% 인센`,c.incRows,c.incTotal)
     +`<div class="osum"><div class="ot"><span class="sub">환수관리팀 ${c.mgmt.length}건 · 환수자 없음 ${c.noCol.length}건 · 수동 제외 ${c.exAdj.length}건</span></div></div>`
@@ -2496,8 +2500,8 @@ function renderRefund(){
   else {
     Object.keys(RF_CATS).forEach(cat=>{ const list=live.filter(r=>r.cat===cat); if(!list.length) return; const on=list.filter(r=>!r.exAdj&&cat!=='제외');
       h+=`<div class="ag3 dept"><span>${rfCatTag(cat)} <b>${RF_CATS[cat].label}</b></span><span class="r">${on.length}</span><span class="amt ${cat==='제외'?'zero':''}">${cat==='제외'?W(list.reduce((a,r)=>a+r.paid,0)):won(on.reduce((a,r)=>a+r.paid,0))}</span></div>`;
-      const regionsOf = cat==='팀결산' ? scopeRegs().filter(rg=>list.some(r=>rfRegionOf(r.dept)===rg)).concat(list.some(r=>!scopeRegs().includes(rfRegionOf(r.dept)))?['기타']:[]) : [null];
-      regionsOf.forEach(rg=>{ const rlist = rg===null ? list : list.filter(r=> rg==='기타' ? !scopeRegs().includes(rfRegionOf(r.dept)) : rfRegionOf(r.dept)===rg); const ron=rlist.filter(r=>!r.exAdj);
+      const regionsOf = cat==='팀결산' ? scopeRegs().filter(rg=>list.some(r=>rfRegionOf(r.dept,r.emp)===rg)).concat(list.some(r=>!scopeRegs().includes(rfRegionOf(r.dept,r.emp)))?['기타']:[]) : [null];
+      regionsOf.forEach(rg=>{ const rlist = rg===null ? list : list.filter(r=> rg==='기타' ? !scopeRegs().includes(rfRegionOf(r.dept,r.emp)) : rfRegionOf(r.dept,r.emp)===rg); const ron=rlist.filter(r=>!r.exAdj);
       if(rg!==null) h+=`<div class="ag3 subr"><span><b>${esc(rg)} 팀결산</b></span><span class="r">${ron.length}</span><span class="amt">${won(ron.reduce((a,r)=>a+r.paid,0))}</span></div>`;
       adjGroups(rlist).forEach(gp=>{ const items=gp.idx.map(j=>rlist[j]), onI=items.filter(r=>!r.exAdj), e=findEmp(gp.emp), key=cat+'|'+(rg||'')+'|'+gp.emp, open=ed||O.emp[key];
         h+=`<div class="ag3 pick ${open?'open':''}" onclick="rfToggle('emp','${esc(key)}')"><span><span class="caret">${open?'▾':'▸'}</span>${e&&empBucket(e)?`<span class="tag">${esc(empBucket(e))}</span> `:''}<b>${esc(e?empLabel(e):gp.emp)}</b>${e?'':' <span class="warn" style="font-size:12px;color:var(--danger)">미등록</span>'}${cat!=='제외'&&items.length-onI.length?` <span class="sub">제외 ${items.length-onI.length}</span>`:''}</span><span class="r">${cat==='제외'?items.length:onI.length}</span><span class="amt ${cat==='제외'?'zero':''}">${W(cat==='제외'?items.reduce((a,r)=>a+r.paid,0):onI.reduce((a,r)=>a+r.paid,0))}</span></div>`;
@@ -2512,7 +2516,7 @@ function renderRefund(){
   if(!F.summary) h+=`<div class="empty-row">${F.hidden?'아직 공개되지 않았습니다.':state.editor?'엑셀을 업로드하면 계산됩니다.':'해당 건이 없습니다.'}</div>`;
   else if(!c.incRows.length) h+=`<div class="empty-row">인센 대상이 없습니다.</div>`;
   else {
-    const byCol={}; live.forEach(r=>{ if(!r.collector) return; const to=/천안/.test(r.dept)?RF_CHEONAN_TO:r.collector; (byCol[to]=byCol[to]||[]).push(r); });
+    const byCol={}; live.forEach(r=>{ if(!r.collector) return; const to=rfRegionOf(r.dept,r.emp)==='천안'?RF_CHEONAN_TO:r.collector; (byCol[to]=byCol[to]||[]).push(r); });
     h+=`<div class="ag3 hd"><span>환수자 <span style="font-weight:400;letter-spacing:0;text-transform:none">(누르면 건별)</span></span><span class="r">입금액</span><span class="r">인센 5%</span></div>`;
     Object.keys(byCol).sort((a,b)=>a.localeCompare(b,'ko')).forEach(k=>{ const items=byCol[k], on=items.filter(r=>!r.exInc), e=findEmp(k), open=O.col[k];
       h+=`<div class="ag3 pick ${open?'open':''}" onclick="rfToggle('col','${esc(k)}')"><span><span class="caret">${open?'▾':'▸'}</span>${e&&empBucket(e)?`<span class="tag">${esc(empBucket(e))}</span> `:''}<b>${esc(e?empLabel(e):k)}</b> <span class="sub">${on.length}건</span>${items.length-on.length?` <span class="sub">· 제외 ${items.length-on.length}</span>`:''}</span><span class="r">${W(on.reduce((a,r)=>a+r.paid,0))}</span><span class="amt">${won(on.reduce((a,r)=>a+Math.round(r.paid*RF_RATE/100),0))}</span></div>`;
@@ -2542,10 +2546,10 @@ async function saveRefund(){
 function rfSummaryHtml(rows, reg, month, teamOnly){
   const W=n=>(Number(n)||0).toLocaleString('ko-KR'); const mo=month||(state.rf&&state.rf.month)||(state.appr&&state.appr.month)||'';
   const isMgmt=r=>RF_MGMT.test(r.collector);
-  const live=rows.filter(r=>!isMgmt(r)&&rfRegionOf(r.dept)===reg).map(r=>({...r,cat:r.cat||rfAutoCat(r,mo)}));
+  const live=rows.filter(r=>!isMgmt(r)&&rfRegionOf(r.dept,r.emp)===reg).map(r=>({...r,cat:r.cat||rfAutoCat(r,mo)}));
   if(!live.length) return '';
   const adj=live.filter(r=>r.cat==='개별'&&!r.exAdj), team=live.filter(r=>r.cat==='팀결산'&&!r.exAdj), out=live.filter(r=>r.cat==='제외');
-  const inc=live.filter(r=>r.collector&&!r.exInc).map(r=>({...r,incTo:/천안/.test(r.dept)?RF_CHEONAN_TO:r.collector,inc:Math.round(r.paid*RF_RATE/100)}));
+  const inc=live.filter(r=>r.collector&&!r.exInc).map(r=>({...r,incTo:rfRegionOf(r.dept,r.emp)==='천안'?RF_CHEONAN_TO:r.collector,inc:Math.round(r.paid*RF_RATE/100)}));
   const tbl=(title,list,hdr)=>{ const by={}; list.forEach(r=>{ (by[r.emp||'(미지정)']=by[r.emp||'(미지정)']||[]).push(r); });
     return `<div class="apdata small"><div class="apt">${title}</div><table class="mini"><tr><th>${hdr}</th><th class="r">건수</th><th class="r">보정금액</th></tr>${Object.keys(by).sort().map(k=>{ const e=findEmp(k); return `<tr><td>${esc(e?empLabel(e):k)}</td><td class="r">${by[k].length}</td><td class="r">${W(by[k].reduce((a,r)=>a+r.paid,0))}</td></tr>`; }).join('')}<tr class="tot"><td>합계</td><td class="r">${list.length}</td><td class="r">${W(list.reduce((a,r)=>a+r.paid,0))}</td></tr></table></div>`; };
   let h='';
@@ -2568,12 +2572,12 @@ function exportRefundXlsx(){
   // 요약
   const W=n=>Number(n)||0;
   const sumRows=[['항목','건수','금액'],['개별 보정 (26년 개통)',c.adjRows.length,W(c.adjTotal)]];
-  scopeRegs().forEach(rg=>{ const l=c.teamRows.filter(r=>rfRegionOf(r.dept)===rg); sumRows.push([`팀결산 보정 · ${rg}`,l.length,l.reduce((a,r)=>a+r.paid,0)]); });
+  scopeRegs().forEach(rg=>{ const l=c.teamRows.filter(r=>rfRegionOf(r.dept,r.emp)===rg); sumRows.push([`팀결산 보정 · ${rg}`,l.length,l.reduce((a,r)=>a+r.paid,0)]); });
   sumRows.push(['팀결산 제외 (이전개통 퇴사자)',c.outRows.length,W(c.outTotal)],['5% 인센',c.incRows.length,W(c.incTotal)],['환수관리팀 (제외)',c.mgmt.length,c.mgmt.reduce((a,r)=>a+r.paid,0)],['수동 제외',c.exAdj.length,c.exAdj.reduce((a,r)=>a+r.paid,0)]);
   const wsS=XLSX.utils.aoa_to_sheet([[`${m} 환수완료 요약`],[]].concat(sumRows)); xlsxNumFmt(wsS); wsS['!cols']=[{wch:30},{wch:8},{wch:14}];
   XLSX.utils.book_append_sheet(wb,wsS,'요약');
   XLSX.utils.book_append_sheet(wb,mk(c.adjRows.map(r=>row(r,r.paid,'개별 보정'))),'개별보정');
-  scopeRegs().forEach(rg=>{ const l=c.teamRows.filter(r=>rfRegionOf(r.dept)===rg); XLSX.utils.book_append_sheet(wb,mk(l.map(r=>row(r,r.paid,'팀결산 보정'))),`팀결산_${rg}`); });
+  scopeRegs().forEach(rg=>{ const l=c.teamRows.filter(r=>rfRegionOf(r.dept,r.emp)===rg); XLSX.utils.book_append_sheet(wb,mk(l.map(r=>row(r,r.paid,'팀결산 보정'))),`팀결산_${rg}`); });
   XLSX.utils.book_append_sheet(wb,mk(c.outRows.map(r=>row(r,0,'팀결산 제외','이전개통 퇴사자'))),'팀결산제외');
   const inc=c.incRows.map(r=>[r.incTo].concat(row(r,r.inc,'5% 인센')));
   const wsI=XLSX.utils.aoa_to_sheet([['인센 귀속'].concat(HEAD)].concat(inc)); xlsxNumFmt(wsI); wsI['!cols']=[{wch:12}].concat(HEAD.map(h=>({wch:h.length>5?16:11})));
@@ -2807,15 +2811,15 @@ function clCalc(){
       const R=state.ind.regions[reg]||{rows:[]}; const calcs=(R.rows||[]).map(r=>indCalc(r,R)); o.goalN=calcs.filter(c=>c.cond>0).length; o.goal=o.goalN*IND_BONUS; o.indN=(R.rows||[]).length;
       o.bonus=calcs.reduce((a,c)=>a+c.b1.amount+c.b2.amount,0);   // 추가매출1(건당)+2(보정) — 개별정산서와 동일
       o.toss=wz.filter(r=>region(r.team)===reg).reduce((a,r)=>a+(Number(r.amount)||0),0);
-      o.paidRf=rfLive.filter(r=>r.cat==='개별'&&!r.exAdj&&rfRegionOf(r.dept)===reg).reduce((a,r)=>a+r.paid,0);
+      o.paidRf=rfLive.filter(r=>r.cat==='개별'&&!r.exAdj&&rfRegionOf(r.dept,r.emp)===reg).reduce((a,r)=>a+r.paid,0);
       o.sky=sky.filter(r=>region(r.team)===reg).reduce((a,r)=>a+(Number(r.amount)||0),0);
       o.up=up.filter(r=>(r.region||region(r.team))===reg).reduce((a,r)=>a+(Number(r.amount)||0),0);
       o.pen=-pen.filter(r=>region(r.team)===reg||r.team===reg+' '+OFF).reduce((a,r)=>a+(Number(r.amount)||0),0);
       const occ=roLive((oc[reg]||{}).rows).filter(r=>roKind(oc[reg],r.cat)==='팀결산');
       o.retiredOcc=occ.filter(r=>retired(r.emp)).reduce((a,r)=>a+r.amount,0);
       o.y25occ=occ.filter(r=>!retired(r.emp)).reduce((a,r)=>a+r.amount,0);
-      o.y25paid=rfLive.filter(r=>r.cat==='팀결산'&&!r.exAdj&&rfRegionOf(r.dept)===reg).reduce((a,r)=>a+r.paid,0);
-      o.retiredPaid=rfLive.filter(r=>r.cat==='제외'&&rfRegionOf(r.dept)===reg).reduce((a,r)=>a+r.paid,0);
+      o.y25paid=rfLive.filter(r=>r.cat==='팀결산'&&!r.exAdj&&rfRegionOf(r.dept,r.emp)===reg).reduce((a,r)=>a+r.paid,0);
+      o.retiredPaid=rfLive.filter(r=>r.cat==='제외'&&rfRegionOf(r.dept,r.emp)===reg).reduce((a,r)=>a+r.paid,0);
       o.y25=o.y25occ+o.y25paid;
       if(oc[reg]&&(oc[reg].rows||[]).length){ o.refundFile=o.refund; o.refund=roLive(oc[reg].rows).filter(r=>roKind(oc[reg],r.cat)==='개별').reduce((a,r)=>a+r.amount,0); }   // 환수발생 = 환수발생 메뉴 기준
     }
