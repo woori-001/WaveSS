@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1111-90';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1111-91';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1647,6 +1647,7 @@ function parseAdjWorkbook(wb){
     if(!G.lines.length) return;
     const units=adjSplitLines(G.lines);
     units.forEach((lines,ui)=>{
+      if(!lines.some(l=>ADJ_NET(l.product))) return;   // 인터넷 회선이 없는 고객(모바일·유심 단판 등)은 보정 대상 아님
       const sum=lines.reduce((a,l)=>a+l.amount,0);
       const ppom = units.length>1 ? lines.some(l=>l.ppom) : (G.lines.some(l=>l.ppom)||!!G.ppomX);
       const rule=ppom?'뽐뿌':'전체경로', cfg=ADJ.rules[rule];
@@ -1710,7 +1711,7 @@ function renderAdj(){
     +`<div class="sum"><span>자동 제외 (−50,001원 이하)</span><span class="amt ${ex.length?'':'zero'}">${ex.length}명</span></div>`
     +`<div class="sum total"><b>최종 추가보정금액</b><span class="amt">${won(adjTotal)}</span></div>`
     +(R.summary&&R.summary.file?`<div class="sub" style="padding-top:8px">파일: ${esc(R.summary.file)}</div>`:'')+`</div>`
-    +`<div class="block">${secHead('Rules','산출 기준')}<div class="rules"><ul><li>고객명+연락처 같으면 한 고객 · 정산금액 합산</li><li>${ruleTag('뽐뿌')} 4만원 미만 → 4만원까지</li><li>${ruleTag('전체경로')} −5만 ~ 4만원 미만 → 4만원까지 (−50,001원 이하 제외)</li><li>일반 · 개통완료 건만 (추가/환수 · 해지/취소 · 업셀링 · 추가지급 · 0원 부가상품 제외)</li><li>편집 중 <b>제외</b> 버튼으로 사유 기재 후 수동 제외</li></ul></div></div>`;
+    +`<div class="block">${secHead('Rules','산출 기준')}<div class="rules"><ul><li>고객명+연락처 같으면 한 고객 · 정산금액 합산</li><li>${ruleTag('뽐뿌')} 4만원 미만 → 4만원까지</li><li>${ruleTag('전체경로')} −5만 ~ 4만원 미만 → 4만원까지 (−50,001원 이하 제외)</li><li>인터넷 회선이 있는 고객만 (모바일·유심 단판 제외) · 인터넷 여러 회선이면 회선별로 판정</li><li>일반 · 개통완료 건만 (추가/환수 · 해지/취소 · 업셀링 · 추가지급 · 0원 부가상품 제외)</li><li>편집 중 <b>제외</b> 버튼으로 사유 기재 후 수동 제외</li></ul></div></div>`;
   $('acol1').innerHTML=l;
   // 오른쪽
   let h='';
