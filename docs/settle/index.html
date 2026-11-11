@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1110-88';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1111-89';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1598,6 +1598,22 @@ function adjRegionPick(r){ if(state.edit && isDirty() && state.adjRegion!==r){ t
 // 엑셀 → 고객별 합산 → 규칙 판정
 const ADJ_EXCL = /업셀링|전환|추가지급/;                     // 항상 제외 (0원 부속행 / 추가지급 행)
 const ADJ_EXCL0 = /부가상품|인터넷전화|OSS/i;                  // 0원일 때만 제외 (부속 상품)
+// 인터넷 회선 기준: 한 고객이 인터넷을 여러 회선 했으면 회선마다 따로 판정 (인터넷+TV+모바일 1회선 = 1건, 인터넷 3회선 = 3건)
+//  - TV·부가상품 등은 가입서비스 번호가 같은(또는 바로 옆 번호인) 인터넷 회선에 붙임, 못 찾으면(모바일 등) 첫 회선에 붙임
+const ADJ_NET = p => /인터넷/.test(p) && !/인터넷전화/.test(p);
+const adjSvcNums = s => (String(s||'').match(/[\d-]{8,}/g)||[]).map(x=>x.replace(/\D/g,'')).filter(x=>x.length>=8);
+function adjSplitLines(lines){
+  const nets=lines.filter(l=>ADJ_NET(l.product));
+  if(nets.length<2) return [lines];
+  const units=nets.map(n=>({nums:adjSvcNums(n.svc),lines:[n]}));
+  lines.filter(l=>!ADJ_NET(l.product)).forEach(l=>{
+    const my=adjSvcNums(l.svc);
+    let u=units.find(u=>u.nums.some(x=>my.includes(x)));
+    if(!u){ let best=null, bd=6; units.forEach(v=>v.nums.forEach(x=>my.forEach(y=>{ if(x.length===y.length&&x.slice(0,-3)===y.slice(0,-3)){ const d=Math.abs(+x.slice(-3)-+y.slice(-3)); if(d<bd){ bd=d; best=v; } } }))); u=best; }
+    (u||units[0]).lines.push(l);
+  });
+  return units.map(u=>u.lines);
+}
 function parseAdjWorkbook(wb){
   let H=null, aoa=null;
   for(const nm of wb.SheetNames){ const a=XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,defval:''}); if(!a.length) continue; const h=a[0].map(x=>String(x||'').trim()); if(h.includes('고객명')&&h.includes('정산금액')&&h.includes('정산종류')){ H=h; aoa=a; break; } }
@@ -1617,23 +1633,27 @@ function parseAdjWorkbook(wb){
   base.forEach((r,i)=>{
     const customer=g(r,'고객명'), phone=g(r,'명의자연락처'); const key=normName(customer)+'#'+find(i);
     const product=g(r,'상품명'), amount=num(r[col('정산금액')]);
-    const G=groups[key]=groups[key]||{customer,phone,emp:g(r,'유치자'),ppom:false,lines:[]};
-    if(/뽐/.test(g(r,'접수경로'))) G.ppom=true;
-    if(ADJ_EXCL.test(product)) return;
-    if(amount===0 && ADJ_EXCL0.test(product)) return;
-    G.lines.push({product,amount});
+    const G=groups[key]=groups[key]||{customer,phone,emp:g(r,'유치자'),lines:[]};
+    const ppom=/뽐/.test(g(r,'접수경로'));
+    if(ADJ_EXCL.test(product)) { if(ppom) G.ppomX=true; return; }
+    if(amount===0 && ADJ_EXCL0.test(product)) { if(ppom) G.ppomX=true; return; }
+    G.lines.push({product,amount,svc:g(r,'가입서비스'),ppom});
   });
   const out=[];
   Object.values(groups).forEach(G=>{
     if(!G.lines.length) return;
-    const sum=G.lines.reduce((a,l)=>a+l.amount,0);
-    const rule=G.ppom?'뽐뿌':'전체경로', cfg=ADJ.rules[rule];
-    if(sum>=cfg.below) return;
-    const note=G.lines.map(l=>`${l.product} ${l.amount.toLocaleString('ko-KR')}`).join(' / ');
-    const row={emp:G.emp,customer:G.customer,phone:G.phone,rule,n:G.lines.length,amount:sum,need:ADJ.target-sum,adj:0,status:'대상',reason:'',note};
-    if(sum<cfg.min){ row.status='제외'; row.adj=0; }
-    else row.adj=row.need;
-    out.push(row);
+    const units=adjSplitLines(G.lines);
+    units.forEach((lines,ui)=>{
+      const sum=lines.reduce((a,l)=>a+l.amount,0);
+      const ppom = units.length>1 ? lines.some(l=>l.ppom) : (G.lines.some(l=>l.ppom)||!!G.ppomX);
+      const rule=ppom?'뽐뿌':'전체경로', cfg=ADJ.rules[rule];
+      if(sum>=cfg.below) return;
+      const note=(units.length>1?`인터넷 ${ui+1}/${units.length}회선 · `:'')+lines.map(l=>`${l.product} ${l.amount.toLocaleString('ko-KR')}`).join(' / ');
+      const row={emp:G.emp,customer:G.customer,phone:G.phone,rule,n:lines.length,amount:sum,need:ADJ.target-sum,adj:0,status:'대상',reason:'',note};
+      if(sum<cfg.min){ row.status='제외'; row.adj=0; }
+      else row.adj=row.need;
+      out.push(row);
+    });
   });
   out.sort((a,b)=>a.emp.localeCompare(b.emp,'ko')||a.customer.localeCompare(b.customer,'ko'));
   return {rows:out, total};
