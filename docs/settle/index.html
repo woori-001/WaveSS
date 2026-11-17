@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1117-92';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1117-93';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1468,7 +1468,9 @@ function upRegionOf(coop, emp){
 // 마이너스 보정: (추단) 업셀링 건이 마이너스면 그 건만 0원이 되게 + 보정 (메인티비와 상관없이 한 건씩)
 const upKey = d => (d.region||'')+'|'+String(d.customer||'').replace(/\s+/g,'')+'|'+String(d.emp||'').replace(/\s+/g,'');
 const upAdjTarget = d => /^\s*\(추단\)/.test(String(d.option||'')) && (Number(d.amount)||0) < 0;
+const UP_ADJ_FROM = '2026-11';   // (추단) 마이너스 보정은 2026년 11월분부터 — 그 전 달은 기존 방식(보정 없음) 그대로
 function upAdjList(det){
+  if(String((state.up&&state.up.month)||'') < UP_ADJ_FROM) return [];
   return (det||[]).filter(upAdjTarget).map(d=>({region:d.region||'',customer:d.customer,emp:d.emp,n:1,sum:Number(d.amount)||0,adj:-(Number(d.amount)||0),items:[d]}));
 }
 const upAdjSum = (det, r) => upAdjList(det).filter(x=>r===undefined||x.region===r).reduce((a,x)=>a+x.adj,0);
@@ -1542,7 +1544,7 @@ function renderUp(){
     else l+=`<div class="sub">${c.mode==='split'?'두 팀 5:5 반영':'한 팀 전부 반영'} — ${esc(U.rows.filter(x=>x.region===r).map(x=>x.team).join(' · ')||'-')}</div>`;
     l+=`</div>`;
   });
-  l+=`</div><div class="block">${secHead('Summary','결산 반영 합계')}<div class="sum"><span>건수</span><span class="amt">${det.length}건</span></div>${adjT?`<div class="sum"><span>정산금액 합계</span><span class="amt">${won(raw)}</span></div><div class="sum"><span>마이너스 보정 (${adjL.length}건)</span><span class="amt">+${won(adjT)}</span></div>`:''}<div class="sum total"><b>결산 반영금액</b><span class="amt">${won(total)}</span></div><div class="sub" style="padding-top:8px">정산금액(수수료 − 쿠폰)의 합계 · (추단) 건이 마이너스면 그 건만 0원까지 보정</div></div>`;
+  l+=`</div><div class="block">${secHead('Summary','결산 반영 합계')}<div class="sum"><span>건수</span><span class="amt">${det.length}건</span></div>${adjT?`<div class="sum"><span>정산금액 합계</span><span class="amt">${won(raw)}</span></div><div class="sum"><span>마이너스 보정 (${adjL.length}건)</span><span class="amt">+${won(adjT)}</span></div>`:''}<div class="sum total"><b>결산 반영금액</b><span class="amt">${won(total)}</span></div><div class="sub" style="padding-top:8px">정산금액(수수료 − 쿠폰)의 합계 · (추단) 건이 마이너스면 그 건만 0원까지 보정 (26년 11월분부터)</div></div>`;
   $('ucol1').innerHTML=l;
   // 오른쪽
   let h='';
