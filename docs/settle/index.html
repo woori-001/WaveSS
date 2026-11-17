@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1111-91';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1117-92';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1043,6 +1043,29 @@ async function exportPng(){
 
 /* ══════════ 채증 패널티 ══════════ */
 const won = n => (Number(n)||0).toLocaleString('ko-KR')+'원';
+/* ── 개인정보 자동 가림: 어느 메뉴든 엑셀을 읽는 순간 고객명·연락처를 가림 (서버도 저장·조회할 때 한 번 더 가림) ──
+   고객명 → 가운데 ! (홍길동 → 홍!동) · 연락처 → 뒤 4자리 !!!! · 가입서비스/서비스번호 안의 전화번호 → 뒤 4자리 !!!! · 이미 가려진 값(* !)은 그대로 */
+const X_NAME_H=/^(고객명|가입자명|명의자명|고객성명|성명)$/, X_PHONE_H=/연락처|휴대폰|핸드폰|전화번호|휴대전화/, X_SVC_H=/가입서비스|서비스번호/;
+const xNm = v => (!v||/[*!]/.test(v)) ? v : v.replace(/[가-힣A-Za-z]{2,}/, w => w.length===2 ? w[0]+'!' : w[0]+'!'.repeat(w.length-2)+w[w.length-1]);
+const xPh = v => { if(!v||/[*!]/.test(v)) return v; const o=v.replace(/(\d{2,4}[-.\s]?\d{3,4}[-.\s]?)\d{4}(?!\d)/g,'$1!!!!'); return o!==v?o:v.replace(/\d{4}(\D*)$/,'!!!!$1'); };
+const xSvc = v => v ? v.replace(/(0\d{1,2}-\d{3,4}-)\d{4}(?!\d)/g,'$1!!!!') : v;
+const xMaskFn = h => { h=String(h==null?'':h).replace(/\s+/g,''); return X_NAME_H.test(h)?xNm : X_PHONE_H.test(h)?xPh : X_SVC_H.test(h)?xSvc : null; };
+const xMaskCell = (f,v) => { if(!f||v==null||v===''||typeof v==='boolean'||v instanceof Date) return v; const s=String(v), n=f(s); return n===s?v:n; };
+function xMaskSheet(a){
+  if(!Array.isArray(a)||!a.length) return a;
+  if(!Array.isArray(a[0])){ a.forEach(r=>{ if(r&&typeof r==='object') Object.keys(r).forEach(k=>{ const f=xMaskFn(k); if(f) r[k]=xMaskCell(f,r[k]); }); }); return a; }
+  let hi=-1; for(let i=0;i<Math.min(4,a.length);i++){ if((a[i]||[]).some(h=>xMaskFn(h))){ hi=i; break; } }
+  if(hi<0) return a;
+  const h0=a[hi]||[], h1=a[hi+1]||[], fs=[];
+  for(let c=0;c<Math.max(h0.length,h1.length);c++) fs[c]=xMaskFn(h0[c])||(typeof h1[c]==='string'?xMaskFn(h1[c]):null);
+  for(let i=hi+1;i<a.length;i++){ const r=a[i]; if(Array.isArray(r)) for(let c=0;c<r.length;c++) if(fs[c]) r[c]=xMaskCell(fs[c],r[c]); }
+  return a;
+}
+(function xMaskHook(){
+  const X=window.XLSX;
+  if(X&&X.utils&&X.utils.sheet_to_json){ if(!X.utils.__masked){ const f=X.utils.sheet_to_json; X.utils.sheet_to_json=function(ws,o){ const r=f.call(this,ws,o); try{ return xMaskSheet(r); }catch(_){ return r; } }; X.utils.__masked=true; } }
+  else setTimeout(xMaskHook,150);
+})();
 const OFF = '퇴/휴직';
 const RANKS=/(사원|주임|대리|과장|차장|부장|팀장|실장|매니저|프로|인턴|님)$/;
 const normName = n => String(n||'').replace(/\s+/g,'').replace(/\(.*?\)/g,'').replace(RANKS,'').trim();   // 뒤 숫자는 남김: 동명이인 구분(이상민87 / 이상민95)
