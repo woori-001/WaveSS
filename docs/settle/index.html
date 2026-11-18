@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1117-93';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1118-94';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1665,7 +1665,7 @@ function parseAdjWorkbook(wb){
     const ppom=/뽐/.test(g(r,'접수경로'));
     if(ADJ_EXCL.test(product)) { if(ppom) G.ppomX=true; return; }
     if(amount===0 && ADJ_EXCL0.test(product)) { if(ppom) G.ppomX=true; return; }
-    G.lines.push({product,amount,svc:g(r,'가입서비스'),ppom});
+    G.lines.push({product,amount,svc:g(r,'가입서비스'),ppom,emp:g(r,'유치자')});
   });
   const out=[];
   Object.values(groups).forEach(G=>{
@@ -1678,7 +1678,9 @@ function parseAdjWorkbook(wb){
       const rule=ppom?'뽐뿌':'전체경로', cfg=ADJ.rules[rule];
       if(sum>=cfg.below) return;
       const note=(units.length>1?`인터넷 ${ui+1}/${units.length}회선 · `:'')+lines.map(l=>`${l.product} ${l.amount.toLocaleString('ko-KR')}`).join(' / ');
-      const row={emp:G.emp,customer:maskNm(G.customer),phone:maskPh(G.phone),rule,n:lines.length,amount:sum,need:ADJ.target-sum,adj:0,status:'대상',reason:'',note};
+      // 유치자: 그 회선의 인터넷을 유치한 사람 (업셀링·추가지급 등 제외 행의 유치자는 쓰지 않음)
+      const net=lines.find(l=>ADJ_NET(l.product)), emp=(net&&net.emp)||(lines[0]&&lines[0].emp)||G.emp;
+      const row={emp,customer:maskNm(G.customer),phone:maskPh(G.phone),rule,n:lines.length,amount:sum,need:ADJ.target-sum,adj:0,status:'대상',reason:'',note};
       if(sum<cfg.min){ row.status='제외'; row.adj=0; }
       else row.adj=row.need;
       out.push(row);
