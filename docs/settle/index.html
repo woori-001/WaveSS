@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1118-94';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1118-95';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1697,10 +1697,20 @@ async function adjFile(file){
     const buf=await file.arrayBuffer(); const wb=XLSX.read(buf,{type:'array',cellDates:true});
     const {rows,total}=parseAdjWorkbook(wb);
     if(!state.edit) setEdit(true);
-    const R=state.adj.regions[reg]; R.rows=rows; R.summary={...(R.summary||{}),total,file:file.name};
+    const R=state.adj.regions[reg];
+    // 다시 올려도 이전에 '수동 제외'한 고객(사유 포함)은 그대로 유지 — 고객명+연락처(+인터넷 회선 번호)로 찾아서 이어 붙임
+    const unitOf=r=>{ const m=String(r.note||'').match(/^인터넷 (\d+)\/(\d+)회선/); return m?m[1]+'/'+m[2]:''; };
+    const k2=r=>String(r.customer||'').replace(/\s+/g,'')+'|'+String(r.phone||'').replace(/\D/g,''), k1=r=>k2(r)+'|'+unitOf(r);
+    const old1={}, old2={}, cnt2={};
+    (R.rows||[]).forEach(r=>{ cnt2[k2(r)]=(cnt2[k2(r)]||0)+1; if(r.status==='수동제외'){ old1[k1(r)]=r.reason||''; old2[k2(r)]=r.reason||''; } });
+    const newCnt={}; rows.forEach(r=>{ newCnt[k2(r)]=(newCnt[k2(r)]||0)+1; });
+    let kept=0;
+    rows.forEach(r=>{ let why=old1[k1(r)]; if(why==null && cnt2[k2(r)]===1 && newCnt[k2(r)]===1) why=old2[k2(r)];
+      if(why!=null && r.status==='대상'){ r.status='수동제외'; r.reason=why; r.adj=0; kept++; } });
+    R.rows=rows; R.summary={...(R.summary||{}),total,file:file.name};
     renderAdj();
     const t=rows.filter(r=>r.status==='대상'), x=rows.filter(r=>r.status==='제외');
-    toast(`${reg} ${total}행 읽음 → 보정대상 ${t.length}명 (뽐뿌 ${t.filter(r=>r.rule==='뽐뿌').length} · 전체경로 ${t.filter(r=>r.rule==='전체경로').length}) ${won(t.reduce((a,r)=>a+r.adj,0))}`+(x.length?` · 자동제외 ${x.length}명`:''));
+    toast(`${reg} ${total}행 읽음 → 보정대상 ${t.length}명 (뽐뿌 ${t.filter(r=>r.rule==='뽐뿌').length} · 전체경로 ${t.filter(r=>r.rule==='전체경로').length}) ${won(t.reduce((a,r)=>a+r.adj,0))}`+(x.length?` · 자동제외 ${x.length}명`:'')+(kept?` · 수동제외 ${kept}명 유지`:''));
   }catch(e){ toast('엑셀 읽기 실패: '+e.message, true); }
 }
 function syncAdjDom(){
