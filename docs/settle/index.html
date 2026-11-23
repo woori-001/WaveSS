@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1118-95';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1123-96';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -2712,7 +2712,7 @@ async function roFile(file){
 // 시트(구분)별 반영처: 개별정산서 환수차감 / 팀결산 — 메뉴에서 정한 값(R.summary.kinds)이 우선, 없으면 이름에 '이전'이 있으면 팀결산
 const RO_KINDS = { '개별':{label:'개별정산서 환수차감', cls:'p'}, '팀결산':{label:'팀결산 (이전개통)', cls:'a'} };
 const roKind = (R, c) => (R&&R.summary&&R.summary.kinds&&R.summary.kinds[c]) || (/이전/.test(c)?'팀결산':'개별');
-// 화면 표시용: 팀결산 쪽이라도 시트 이름에 '퇴사'/'결산제외'가 있으면 '팀결산 제외'로 보여줌 (계산은 그대로 — 팀손익에서 퇴사자는 따로 빠짐)
+// 화면 표시용: 팀결산 쪽이라도 시트 이름에 '퇴사'/'결산제외'가 있으면 '팀결산 제외'로 보여줌 (팀손익도 같은 기준으로 퇴사자를 따로 뺌)
 const roOut = c => /퇴사|결산제외/.test(String(c||''));
 const RO_OUT = {label:'팀결산 제외 (퇴사자)', cls:'x'};
 const roKindView = (R, c) => { const k=roKind(R,c); return (k==='팀결산'&&roOut(c)) ? RO_OUT : RO_KINDS[k]; };
@@ -2865,7 +2865,6 @@ function clCalc(){
   const wz=(C.wisely&&C.wisely.rows)||[], sky=C.sky||[], up=C.up||[], pen=C.penalty||[], rf=C.refund||[], oc=C.occur||{};
   const isMgmt=r=>RF_MGMT.test(r.collector);
   const rfLive=rf.filter(r=>!isMgmt(r)).map(r=>({...r,cat:r.cat||rfAutoCat(r,m)}));
-  const retired=name=>{ const e=findEmp(name); return e ? e.status!=='재직' : /^(퇴|휴)/.test(String(name||'').trim()); };
   const rows=(C.teams||[]).map(t=>{
     const reg=CL_REG(t.coop), o={...t, reg, goal:0, bonus:0, toss:0, paidRf:0, sky:null, up:null, pen:null, y25occ:null, y25paid:null, y25:null, retiredOcc:0, retiredPaid:0};
     if(reg){
@@ -2877,8 +2876,9 @@ function clCalc(){
       o.up=up.filter(r=>(r.region||region(r.team))===reg).reduce((a,r)=>a+(Number(r.amount)||0),0);
       o.pen=-pen.filter(r=>region(r.team)===reg||r.team===reg+' '+OFF).reduce((a,r)=>a+(Number(r.amount)||0),0);
       const occ=roLive((oc[reg]||{}).rows).filter(r=>roKind(oc[reg],r.cat)==='팀결산');
-      o.retiredOcc=occ.filter(r=>retired(r.emp)).reduce((a,r)=>a+r.amount,0);
-      o.y25occ=occ.filter(r=>!retired(r.emp)).reduce((a,r)=>a+r.amount,0);
+      // 이전개통 환수 → 팀결산 / 퇴사자(팀결산 제외)는 환수발생 엑셀 시트 기준으로 나눔 (시트 이름에 '퇴사'·'결산제외' = 퇴사자) — 환수발생 화면과 동일
+      o.retiredOcc=occ.filter(r=>roOut(r.cat)).reduce((a,r)=>a+r.amount,0);
+      o.y25occ=occ.filter(r=>!roOut(r.cat)).reduce((a,r)=>a+r.amount,0);
       o.y25paid=rfLive.filter(r=>r.cat==='팀결산'&&!r.exAdj&&rfRegionOf(r.dept,r.emp)===reg).reduce((a,r)=>a+r.paid,0);
       o.retiredPaid=rfLive.filter(r=>r.cat==='제외'&&rfRegionOf(r.dept,r.emp)===reg).reduce((a,r)=>a+r.paid,0);
       o.y25=o.y25occ+o.y25paid;
