@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1123-98';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1123-99';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -2929,7 +2929,7 @@ function clDocHtml(forCapture){
   L+=`<tr class="tot"><td>합계</td><td class="r ${c.total<0?'neg':''}">${clW(c.total)}</td>`+(wide?`${sum('fee')}${sum('cost',o=>-o.cost)}${sum('goal')}${sum('bonus')}${sum('toss')}${sum('refund')}${sum('paidRf')}`:'')+`</tr></tbody></table>`;
   const rr=c.rows.filter(o=>o.reg);
   let Rt=`<table class="tt cl"><thead><tr><th>협력점</th><th class="r">스카이 유심</th><th class="r">업셀링</th><th class="r">채증패널티</th><th class="r">${yy}년 이전 환수</th>${wide?`<th class="r">${yy}년 이전 환수발생</th><th class="r">${yy}년 이전 환수수금</th>`:''}</tr></thead><tbody>`;
-  rr.forEach(o=>{ Rt+=`<tr><td>${esc(o.coop)}</td>${cell(o,'sky',o.sky)}${cell(o,'up',o.up)}${cell(o,'pen',o.pen)}<td class="r fin ${o.y25<0?'neg':''}">${clSigned(o.y25)}${!wide&&o.y25paid?`<span class="sub" style="display:block;font-weight:400;font-size:11px;white-space:nowrap">발생 ${clSigned(o.y25occ)}</span><span class="sub" style="display:block;font-weight:400;font-size:11px;white-space:nowrap">수금 ${clSigned(o.y25paid)}</span>`:''}</td>${wide?`${cell(o,'y25occ',o.y25occ)}${cell(o,'y25paid',o.y25paid)}`:''}</tr>`; });
+  rr.forEach(o=>{ Rt+=`<tr><td>${esc(o.coop)}</td>${cell(o,'sky',o.sky)}${cell(o,'up',o.up)}${cell(o,'pen',o.pen)}<td class="r fin ${o.y25<0?'neg':''}">${clSigned(o.y25)}${!wide&&o.y25paid?`<span class="sub" style="display:block;font-weight:400;font-size:11px;white-space:nowrap">발생 ${clW(o.y25occ)}</span><span class="sub" style="display:block;font-weight:400;font-size:11px;white-space:nowrap">수금 ${(o.y25paid>0?'+':'')+clW(o.y25paid)}</span>`:''}</td>${wide?`${cell(o,'y25occ',o.y25occ)}${cell(o,'y25paid',o.y25paid)}`:''}</tr>`; });
   Rt+=`</tbody></table>`;
   let N=`<div class="clnotes"><div class="cap" style="margin-bottom:6px">전자결재 별도 표기</div>`+(c.notes.length?c.notes.map(n=>`<div class="cln"><span>${esc(n.label)}</span><span class="r ${n.amount<0?'neg':''}">${clW(n.amount)}</span></div>`).join(''):`<div class="sub">없음</div>`)+`</div>`;
   const ttl=forCapture?`<div style="display:flex;align-items:baseline;gap:12px;margin-bottom:18px"><span style="font-size:46px;font-weight:200;color:var(--ink);line-height:1">${esc(m.slice(5))}</span><span style="display:flex;flex-direction:column;line-height:1.25"><span class="cap" style="letter-spacing:.22em">${ENF[+m.slice(5)-1]} ${esc(m.slice(0,4))}</span><span style="font-size:13px;color:var(--tx2)">${m.slice(2,4)}년 ${+m.slice(5)}월 영업결산 · 팀별 손익</span></span></div>`:'';
