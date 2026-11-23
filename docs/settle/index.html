@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1123-100';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1123-101';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -670,13 +670,14 @@ function dlg(o){
     if(o.input){ $('md_label').textContent=o.input.label||''; $('md_input').value=o.input.value||''; $('md_input').placeholder=o.input.placeholder||''; }
     $('md_chk').style.display=o.check?'':'none';
     if(o.check){ $('md_chklabel').textContent=o.check.label; $('md_check').checked=!!o.check.checked; }
-    $('md_checks').innerHTML=(o.checks||[]).map(c=>`<label class="chk"><input type="checkbox" data-key="${c.key}" ${c.checked?'checked':''}>${esc(c.label)}</label>`).join('');
+    $('md_checks').innerHTML=(o.checks||[]).map(c=>`<label class="chk"><input type="checkbox" data-key="${c.key}" ${c.checked?'checked':''}>${esc(c.label)}</label>`).join('')
+      +(o.radios?o.radios.items.map(c=>`<label class="chk"><input type="radio" name="${o.radios.name}" value="${esc(c.value)}" ${c.value===o.radios.value?'checked':''}>${esc(c.label)}</label>`).join(''):'');
     $('md_err').textContent=''; $('md_ok').textContent=o.ok||'확인'; $('md_ok').className='btn pri'+(o.danger?' danger':'');
     $('mask').classList.add('on');
     if(o.input) setTimeout(()=>{ $('md_input').focus(); $('md_input').select(); },30);
     const close=v=>{ $('mask').classList.remove('on'); $('md_ok').onclick=null; $('md_cancel').onclick=null; $('md_input').onkeydown=null; document.onkeydown=null; resolve(v); };
     const submit=()=>{ const val=$('md_input').value.trim(); if(o.validate){ const e=o.validate(val); if(e){ $('md_err').textContent=e; return; } }
-      const checks={}; document.querySelectorAll('#md_checks input').forEach(i=>checks[i.dataset.key]=i.checked); close({ok:true, value:val, check:$('md_check').checked, checks}); };
+      const checks={}; document.querySelectorAll('#md_checks input[type=checkbox]').forEach(i=>checks[i.dataset.key]=i.checked); const rd=document.querySelector('#md_checks input[type=radio]:checked'); close({ok:true, value:val, check:$('md_check').checked, checks, radio:rd?rd.value:''}); };
     $('md_ok').onclick=submit; $('md_cancel').onclick=()=>close({ok:false});
     $('md_input').onkeydown=e=>{ if(e.key==='Enter') submit(); };
     document.onkeydown=e=>{ if(e.key==='Escape') close({ok:false}); else if(e.key==='Enter'&&!o.input) submit(); };
@@ -2242,9 +2243,9 @@ const XS={ font:{name:'Microsoft GothicNeo',size:10}, gray:'FFF2F2F2', blue:'FFD
 const xsFill=c=>({type:'pattern',pattern:'solid',fgColor:{argb:c}});
 const xsBox=()=>{ const b={style:'thin',color:{argb:XS.line}}; return {top:b,left:b,bottom:b,right:b}; };
 const xsLen=v=>String(v==null?'':v).split('').reduce((a,ch)=>a+(ch.charCodeAt(0)>255?2:1),0);
-async function indStyledXlsx(r,R,reg,det){
-  const wb=new ExcelJS.Workbook(), aoa=indSheetAoa(r,R,reg), al={horizontal:'left',vertical:'middle',indent:1};
-  const ws=wb.addWorksheet('정산',{views:[{showGridLines:false}]});
+function xsIndSheet(wb,title,r,R,reg){
+  const aoa=indSheetAoa(r,R,reg), al={horizontal:'left',vertical:'middle',indent:1};
+  const ws=wb.addWorksheet(title,{views:[{showGridLines:false}]});
   ws.columns=[2.8,24.8,16.8,22.8,16.8].map(w=>({width:w}));
   aoa.forEach((row,i)=>{ const rr=ws.getRow(i+1); rr.height=17.25; if(!row.length) return;
     if(row.length===2){ const c=rr.getCell(2); c.value=row[1]; c.font={...XS.font,color:{argb:'FF808080'}}; c.alignment={vertical:'middle'}; return; }   // 인센티브율 메모
@@ -2254,11 +2255,40 @@ async function indStyledXlsx(r,R,reg,det){
       if(typeof v==='number') c.numFmt='#,##0';
       if(isLab) c.fill=xsFill(sum&&k===1?XS.blue:XS.gray); else if(k===2&&lab==='성명') c.fill=xsFill(XS.blue); }
   });
-  const rows=[IND_DET_HEAD].concat((det||[]).map(indDetRow));
-  const w2=wb.addWorksheet('정산데이터');
-  rows.forEach((row,i)=>{ const rr=w2.addRow(row.map(v=>v===''?null:v)); rr.eachCell({includeEmpty:true},c=>{ c.font=i?XS.font:{...XS.font}; c.alignment={vertical:'middle'}; if(typeof c.value==='number') c.numFmt='#,##0'; if(!i) c.fill=xsFill(XS.head); }); });
-  w2.columns.forEach((col,j)=>{ col.width=Math.min(40,Math.max(5,...rows.map(x=>xsLen(x[j])))+2); });
+  return ws;
+}
+function xsTable(wb,title,rows,opt={}){   // 표 시트: 첫 줄 제목(회색), 숫자 천단위, 열 너비 자동 · opt.box 테두리 · opt.boldLast 마지막 줄(합계) 굵게
+  const ws=wb.addWorksheet(title), n=rows.length;
+  rows.forEach((row,i)=>{ const rr=ws.addRow(row.map(v=>v===''?null:v)), last=opt.boldLast&&i===n-1&&n>1;
+    for(let k=1;k<=row.length;k++){ const c=rr.getCell(k); c.font={...XS.font,bold:!!last}; c.alignment={vertical:'middle'}; if(typeof c.value==='number') c.numFmt='#,##0';
+      if(!i||last) c.fill=xsFill(i?XS.gray:XS.head); if(opt.box) c.border=xsBox(); } });
+  ws.columns.forEach((col,j)=>{ col.width=Math.min(40,Math.max(5,...rows.map(x=>xsLen(x[j])))+2); });
+  if(opt.freeze) ws.views=[{state:'frozen',ySplit:1}];
+  return ws;
+}
+async function indStyledXlsx(r,R,reg,det){
+  const wb=new ExcelJS.Workbook();
+  xsIndSheet(wb,'정산',r,R,reg);
+  xsTable(wb,'정산데이터',[IND_DET_HEAD].concat((det||[]).map(indDetRow)));
   return wb.xlsx.writeBuffer();
+}
+// 일괄 한 파일: mode 'sheets' = 유치자별 정산서 시트 + 정산데이터(전체) / 'sum' = 요약표 + 정산데이터(전체)
+function indBookOrder(R){ const T=teamGroups(R); return {T, list:[].concat(...T.groups.map(g=>g.list))}; }
+const xsSheetName=(nm,used)=>{ let b=String(nm||'이름없음').replace(/[\\\/\?\*\[\]:]/g,'').slice(0,28)||'이름없음', t=b, k=1; while(used[t]) t=b+'_'+(++k); used[t]=1; return t; };
+async function indOneBookXlsx(mode,R,reg,det){
+  const wb=new ExcelJS.Workbook(), {T,list}=indBookOrder(R), used={'정산데이터':1,'요약':1};
+  const detAll=[IND_DET_HEAD].concat((det||[]).map(indDetRow));
+  if(mode==='sheets') list.forEach(x=>xsIndSheet(wb,xsSheetName(x.vals[1],used),x.r,R,reg));
+  else xsTable(wb,'요약',[T.cols].concat(list.map(x=>x.vals),[['합계','','',...T.total.slice(3)]]),{box:true,boldLast:true,freeze:true});
+  xsTable(wb,'정산데이터',detAll,{freeze:true});
+  return wb.xlsx.writeBuffer();
+}
+function indOneBookPlain(mode,R,reg,det){   // 서식 도구를 못 불러왔을 때
+  const wb=XLSX.utils.book_new(), {T,list}=indBookOrder(R), used={'정산데이터':1,'요약':1};
+  if(mode==='sheets') list.forEach(x=>XLSX.utils.book_append_sheet(wb,indSheet(x.r,R,reg),xsSheetName(x.vals[1],used)));
+  else { const ws=XLSX.utils.aoa_to_sheet([T.cols].concat(list.map(x=>x.vals),[['합계','','',...T.total.slice(3)]])); xlsxNumFmt(ws); XLSX.utils.book_append_sheet(wb,ws,'요약'); }
+  XLSX.utils.book_append_sheet(wb,detSheet(det||[]),'정산데이터');
+  return wb;
 }
 function xlsxBufDownload(buf,name){ const u=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),5000); }
 async function exportMyXlsx(){
@@ -2274,10 +2304,22 @@ async function exportIndivXlsx(){
   const A=state.ind, reg=state.indRegion, R=A.regions[reg], m=A.month, rows=R.rows||[];
   if(!rows.length){ toast(`${reg} 자료가 없습니다.`, true); return; }
   const cur=rows.find(x=>indKey(x.emp)===state.indEmp);
-  const d=await dlg({title:'개별 정산서 엑셀', desc:`${reg} ${m} — 선택한 유치자 1명만 받거나, ${reg} 전체 유치자의 정산서를 각각 파일로 만들어 ZIP 하나로 받을 수 있습니다.`, check:{label:`${reg} 전체 (${rows.length}명 · 유치자별 파일 → ZIP)`, checked:!cur}, ok:'다운로드'});
+  const nm1=cur?(indEmpInfo(cur.emp).e?indEmpInfo(cur.emp).e.name:cur.emp):'';
+  const d=await dlg({title:'개별 정산서 엑셀', desc:`${reg} ${m} — 받을 방식을 고르세요.`, ok:'다운로드',
+    radios:{name:'indx', value:cur?'one':'zip', items:[].concat(cur?[{value:'one',label:`선택한 유치자 1명 (${nm1})`}]:[],[
+      {value:'zip',label:`${reg} 전체 ${rows.length}명 · 유치자별 파일 → ZIP`},
+      {value:'sheets',label:`${reg} 전체 · 엑셀 1개 (유치자별 시트 + 정산데이터)`},
+      {value:'sum',label:`${reg} 전체 · 엑셀 1개 (요약표 + 정산데이터)`}])}});
   if(!d.ok) return;
+  const mode=d.radio||(cur?'one':'zip');
   const wb=XLSX.utils.book_new();
-  if(d.check){
+  if(mode==='sheets'||mode==='sum'){
+    let det=[]; try{ det=await api('getIndivDetailsRegion', m, reg); }catch(e){ toast('정산데이터 없이 생성: '+e.message, true); }
+    const fn=`${m}_개별정산서_${reg}_전체${mode==='sum'?'_요약':''}.xlsx`;
+    if(await xjsLoad()){ try{ xlsxBufDownload(await indOneBookXlsx(mode,R,reg,det),fn); toast('엑셀 다운로드'); return; }catch(e){ console.warn('서식 엑셀 실패', e); } }
+    xlsxDownload(indOneBookPlain(mode,R,reg,det),fn); toast('엑셀 다운로드'); return;
+  }
+  if(mode==='zip'){
     if(typeof JSZip==='undefined'){ toast('ZIP 라이브러리 로딩 중입니다. 잠시 후 다시 시도하세요.', true); return; }
     let det=[]; try{ det=await api('getIndivDetailsRegion', m, reg); }catch(e){ toast('정산데이터 없이 생성: '+e.message, true); }
     const byEmp={}; det.forEach(x=>{ (byEmp[indKey(x['유치자'])]=byEmp[indKey(x['유치자'])]||[]).push(x); });
