@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1123-99';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1123-100';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -2233,9 +2233,38 @@ function indSheetAoa(r,R,reg){
 }
 function indSheet(r,R,reg){ const ws=XLSX.utils.aoa_to_sheet(indSheetAoa(r,R,reg)); xlsxNumFmt(ws); ws['!cols']=[{wch:2},{wch:24},{wch:16},{wch:22},{wch:16}]; return ws; }
 function detSheet(det){ const ws=XLSX.utils.aoa_to_sheet([IND_DET_HEAD].concat(det.map(indDetRow))); xlsxNumFmt(ws); ws['!cols']=IND_DET_HEAD.map(h=>({wch:h.length>5?14:10})); return ws; }
-function exportMyXlsx(){
+// 개별정산서 엑셀 서식(테두리·배경·글꼴) — 내보낼 때만 ExcelJS를 불러옴. 못 불러오면 기존(서식 없는) 방식으로 받음
+let _xjs=null;
+function xjsLoad(){ if(window.ExcelJS) return Promise.resolve(true); if(_xjs) return _xjs;
+  _xjs=new Promise(ok=>{ const s=document.createElement('script'); s.src='https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.4.0/exceljs.min.js'; s.onload=()=>ok(!!window.ExcelJS); s.onerror=()=>{ _xjs=null; ok(false); }; document.head.appendChild(s); });
+  return _xjs; }
+const XS={ font:{name:'Microsoft GothicNeo',size:10}, gray:'FFF2F2F2', blue:'FFDDEBF7', head:'FFD9D9D9', line:'FFBFBFBF' };
+const xsFill=c=>({type:'pattern',pattern:'solid',fgColor:{argb:c}});
+const xsBox=()=>{ const b={style:'thin',color:{argb:XS.line}}; return {top:b,left:b,bottom:b,right:b}; };
+const xsLen=v=>String(v==null?'':v).split('').reduce((a,ch)=>a+(ch.charCodeAt(0)>255?2:1),0);
+async function indStyledXlsx(r,R,reg,det){
+  const wb=new ExcelJS.Workbook(), aoa=indSheetAoa(r,R,reg), al={horizontal:'left',vertical:'middle',indent:1};
+  const ws=wb.addWorksheet('정산',{views:[{showGridLines:false}]});
+  ws.columns=[2.8,24.8,16.8,22.8,16.8].map(w=>({width:w}));
+  aoa.forEach((row,i)=>{ const rr=ws.getRow(i+1); rr.height=17.25; if(!row.length) return;
+    if(row.length===2){ const c=rr.getCell(2); c.value=row[1]; c.font={...XS.font,color:{argb:'FF808080'}}; c.alignment={vertical:'middle'}; return; }   // 인센티브율 메모
+    const lab=String(row[1]||''), sum=/인센티브/.test(lab);
+    for(let k=1;k<row.length;k++){ const c=rr.getCell(k+1), v=row[k], isLab=(k===1||k===3);
+      c.value=(v===''||v==null)?null:v; c.font={...XS.font, bold:(k===2&&lab==='예상인센티브')}; c.alignment=al; c.border=xsBox();
+      if(typeof v==='number') c.numFmt='#,##0';
+      if(isLab) c.fill=xsFill(sum&&k===1?XS.blue:XS.gray); else if(k===2&&lab==='성명') c.fill=xsFill(XS.blue); }
+  });
+  const rows=[IND_DET_HEAD].concat((det||[]).map(indDetRow));
+  const w2=wb.addWorksheet('정산데이터');
+  rows.forEach((row,i)=>{ const rr=w2.addRow(row.map(v=>v===''?null:v)); rr.eachCell({includeEmpty:true},c=>{ c.font=i?XS.font:{...XS.font}; c.alignment={vertical:'middle'}; if(typeof c.value==='number') c.numFmt='#,##0'; if(!i) c.fill=xsFill(XS.head); }); });
+  w2.columns.forEach((col,j)=>{ col.width=Math.min(40,Math.max(5,...rows.map(x=>xsLen(x[j])))+2); });
+  return wb.xlsx.writeBuffer();
+}
+function xlsxBufDownload(buf,name){ const u=URL.createObjectURL(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'})); const a=document.createElement('a'); a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(u),5000); }
+async function exportMyXlsx(){
   const d=state.my; if(!d||!d.found){ toast('공개된 정산서가 없습니다.', true); return; } if(typeof XLSX==='undefined'){ toast('엑셀 라이브러리 로딩 중입니다.', true); return; }
   const R=state.ind.regions[d.region], i=indEmpInfo(d.row.emp), name=i.e?i.e.name:d.row.emp;
+  if(await xjsLoad()){ try{ xlsxBufDownload(await indStyledXlsx(d.row,R,d.region,d.details||[]),`${d.month}_정산서_${name}.xlsx`); toast('엑셀 다운로드'); return; }catch(e){ console.warn('서식 엑셀 실패', e); } }
   const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb,indSheet(d.row,R,d.region),'정산'); XLSX.utils.book_append_sheet(wb,detSheet(d.details||[]),'정산데이터');
   xlsxDownload(wb,`${d.month}_정산서_${name}.xlsx`); toast('엑셀 다운로드');
 }
@@ -2252,16 +2281,19 @@ async function exportIndivXlsx(){
     if(typeof JSZip==='undefined'){ toast('ZIP 라이브러리 로딩 중입니다. 잠시 후 다시 시도하세요.', true); return; }
     let det=[]; try{ det=await api('getIndivDetailsRegion', m, reg); }catch(e){ toast('정산데이터 없이 생성: '+e.message, true); }
     const byEmp={}; det.forEach(x=>{ (byEmp[indKey(x['유치자'])]=byEmp[indKey(x['유치자'])]||[]).push(x); });
-    const zip=new JSZip(), used={};
-    rows.forEach(r=>{ const i=indEmpInfo(r.emp); let nm=(i.e?i.e.name:r.emp).replace(/[\\\/\?\*\[\]:]/g,''); if(used[nm]) nm+='_'+(++used[nm]); else used[nm]=1;
-      const w=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(w,indSheet(r,R,reg),'정산'); XLSX.utils.book_append_sheet(w,detSheet(byEmp[indKey(r.emp)]||[]),'정산데이터');
-      zip.file(`${m}_정산서_${nm}.xlsx`, XLSX.write(w,{bookType:'xlsx',type:'base64'}), {base64:true}); });
+    const zip=new JSZip(), used={}, styled=await xjsLoad();
+    for(const r of rows){ const i=indEmpInfo(r.emp); let nm=(i.e?i.e.name:r.emp).replace(/[\\\/\?\*\[\]:]/g,''); if(used[nm]) nm+='_'+(++used[nm]); else used[nm]=1;
+      const dr=byEmp[indKey(r.emp)]||[];
+      if(styled){ try{ zip.file(`${m}_정산서_${nm}.xlsx`, await indStyledXlsx(r,R,reg,dr)); continue; }catch(e){ console.warn('서식 엑셀 실패', e); } }
+      const w=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(w,indSheet(r,R,reg),'정산'); XLSX.utils.book_append_sheet(w,detSheet(dr),'정산데이터');
+      zip.file(`${m}_정산서_${nm}.xlsx`, XLSX.write(w,{bookType:'xlsx',type:'base64'}), {base64:true}); }
     const b64=await zip.generateAsync({type:'base64'});
     const a=document.createElement('a'); a.href='data:application/zip;base64,'+b64; a.download=`${m}_개별정산서_${reg}_전체.zip`; document.body.appendChild(a); a.click(); a.remove();
   } else {
     if(!cur){ toast('유치자를 선택하세요.', true); return; }
     const i=indEmpInfo(cur.emp), name=i.e?i.e.name:cur.emp, k=reg+'|'+indKey(cur.emp);
     if(!state.indDetails[k]){ try{ state.indDetails[k]=await api('getIndivDetails', m, reg, cur.emp); }catch(e){ state.indDetails[k]=[]; } }
+    if(await xjsLoad()){ try{ xlsxBufDownload(await indStyledXlsx(cur,R,reg,state.indDetails[k]||[]),`${m}_정산서_${name}.xlsx`); toast('엑셀 다운로드'); return; }catch(e){ console.warn('서식 엑셀 실패', e); } }
     XLSX.utils.book_append_sheet(wb,indSheet(cur,R,reg),'정산');
     XLSX.utils.book_append_sheet(wb,detSheet(state.indDetails[k]||[]),'정산데이터');
     xlsxDownload(wb,`${m}_정산서_${name}.xlsx`);
