@@ -639,7 +639,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="config.js"></script>
 <script>
-const BUILD='s1123-101';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
+const BUILD='s1127-102';   // 배포 확인용 빌드 표시 (s = Supabase 버전)
 /* ────────── 서버 호출 ────────── */
 /* Supabase: 로그인은 supabase-js, 데이터는 Edge Function(settle-api) 한 곳으로 */
 const CFG = window.SETTLE_CONFIG || {};
@@ -1643,6 +1643,21 @@ function adjSplitLines(lines){
   });
   return units.map(u=>u.lines);
 }
+// 연락처 → [앞, 중간, 뒤] 자리별 (가려진 자리는 '?') · 하이픈 없는 번호는 11자리 3-4-4 / 10자리 3-3-4로 자름
+const adjPh = v => { v=String(v==null?'':v).trim(); if(!v) return null;
+  let p=v.split(/[^0-9*!#xX●○]+/).filter(Boolean);
+  if(p.length===1){ const t=p[0]; if(t.length===11) p=[t.slice(0,3),t.slice(3,7),t.slice(7)]; else if(t.length===10) p=[t.slice(0,3),t.slice(3,6),t.slice(6)]; else return null; }
+  if(p.length<3) return null;
+  p=p.slice(0,3).map(x=>x.replace(/\D/g,'?'));
+  return /\d/.test(p[1]+p[2]) ? {a:p[0],m:p[1],l:p[2]} : null; };
+// 두 연락처가 같은 번호인지: 둘 다 보이는 자리끼리만 비교 — 다른 숫자가 하나도 없고, 맞는 숫자가 (중간+뒤에서) 3자리 이상이면 같은 번호
+//  뒷자리는 앞에서부터 맞춰 봄 → 끝자리 누락 오타(…-123 / …-1234)도 같은 번호
+const adjPhSame = (x,y) => { let hit=0;
+  const cmp=(s,t)=>{ const n=Math.min(s.length,t.length); for(let k=0;k<n;k++){ if(s[k]==='?'||t[k]==='?') continue; if(s[k]!==t[k]) return false; hit++; } return true; };
+  if(!/\?/.test(x.a+y.a) && x.a!==y.a) return false;
+  if(x.m.length===y.m.length){ if(!cmp(x.m,y.m)) return false; } else if(!/\?/.test(x.m+y.m)) return false;
+  if(!cmp(x.l,y.l)) return false;
+  return hit>=3; };
 function parseAdjWorkbook(wb){
   let H=null, aoa=null;
   for(const nm of wb.SheetNames){ const a=XLSX.utils.sheet_to_json(wb.Sheets[nm],{header:1,raw:true,defval:''}); if(!a.length) continue; const h=a[0].map(x=>String(x||'').trim()); if(h.includes('고객명')&&h.includes('정산금액')&&h.includes('정산종류')){ H=h; aoa=a; break; } }
@@ -1652,12 +1667,14 @@ function parseAdjWorkbook(wb){
   const rows=aoa.slice(1).filter(r=>/^\d+$/.test(String(r[0]||'').trim()));
   const total=rows.length;
   const base=rows.filter(r=>g(r,'정산종류')==='일반' && g(r,'개통상태')==='개통완료');
-  // 같은 고객 묶기: 이름이 같고 (연락처 앞 7자리 · 설치연락처 앞 7자리 · 가입서비스 중 하나라도 같으면) 한 고객
-  //  → 연락처 끝자리 오타(010-8873-123 / 010-8873-1234)나 마스킹(!!!!)이 있어도 회선이 갈라지지 않음
-  const par=base.map((_,i)=>i), find=i=>par[i]===i?i:(par[i]=find(par[i])), link={};
-  const p7=v=>{ const d=String(v||'').replace(/\D/g,''); return d.length>=7?d.slice(0,7):''; };
-  base.forEach((r,i)=>{ const nm=normName(g(r,'고객명')); const svc=g(r,'가입서비스').replace(/\s+/g,'');
-    [p7(g(r,'명의자연락처'))&&'p'+p7(g(r,'명의자연락처')), p7(g(r,'설치연락처'))&&'p'+p7(g(r,'설치연락처')), svc&&'s'+svc].filter(Boolean).forEach(x=>{ const k=nm+'|'+x; if(k in link) par[find(i)]=find(link[k]); else link[k]=i; }); });
+  // 같은 고객 묶기: 이름이 같고 (명의자·설치 연락처의 '보이는 숫자'가 서로 맞거나, 가입서비스가 같으면) 한 고객 — 징검다리로도 이어짐
+  //  → 연락처는 가려진 자리(* ! # x ●)는 빼고 보이는 숫자끼리만 비교 (중간만 보이면 중간, 뒷자리만 보이면 뒷자리, 중간2+뒷2면 그 4자리)
+  const par=base.map((_,i)=>i), find=i=>par[i]===i?i:(par[i]=find(par[i])), uni=(a,b)=>{ a=find(a); b=find(b); if(a!==b) par[b]=a; };
+  const P=base.map(r=>[adjPh(g(r,'명의자연락처')),adjPh(g(r,'설치연락처'))].filter(Boolean));
+  const S=base.map(r=>g(r,'가입서비스').replace(/\s+/g,''));
+  const byNm={}; base.forEach((r,i)=>{ const nm=normName(g(r,'고객명')); (byNm[nm]=byNm[nm]||[]).push(i); });
+  Object.values(byNm).forEach(ix=>{ for(let a=0;a<ix.length;a++) for(let b=a+1;b<ix.length;b++){ const x=ix[a], y=ix[b];
+    if((S[x]&&S[x]===S[y]) || P[x].some(p=>P[y].some(q=>adjPhSame(p,q)))) uni(x,y); } });
   const groups={};
   base.forEach((r,i)=>{
     const customer=g(r,'고객명'), phone=g(r,'명의자연락처'); const key=normName(customer)+'#'+find(i);
@@ -1749,7 +1766,7 @@ function renderAdj(){
     +`<div class="sum"><span>자동 제외 (−50,001원 이하)</span><span class="amt ${ex.length?'':'zero'}">${ex.length}명</span></div>`
     +`<div class="sum total"><b>최종 추가보정금액</b><span class="amt">${won(adjTotal)}</span></div>`
     +(R.summary&&R.summary.file?`<div class="sub" style="padding-top:8px">파일: ${esc(R.summary.file)}</div>`:'')+`</div>`
-    +`<div class="block">${secHead('Rules','산출 기준')}<div class="rules"><ul><li>고객명+연락처 같으면 한 고객 · 정산금액 합산</li><li>${ruleTag('뽐뿌')} 4만원 미만 → 4만원까지</li><li>${ruleTag('전체경로')} −5만 ~ 4만원 미만 → 4만원까지 (−50,001원 이하 제외)</li><li>인터넷 회선이 있는 고객만 (모바일·유심 단판 제외) · 인터넷 여러 회선이면 회선별로 판정</li><li>일반 · 개통완료 건만 (추가/환수 · 해지/취소 · 업셀링 · 추가지급 · 0원 부가상품 제외)</li><li>편집 중 <b>제외</b> 버튼으로 사유 기재 후 수동 제외</li></ul></div></div>`;
+    +`<div class="block">${secHead('Rules','산출 기준')}<div class="rules"><ul><li>고객명 같고 연락처(보이는 숫자끼리 비교)·가입서비스 중 하나라도 같으면 한 고객 · 정산금액 합산</li><li>${ruleTag('뽐뿌')} 4만원 미만 → 4만원까지</li><li>${ruleTag('전체경로')} −5만 ~ 4만원 미만 → 4만원까지 (−50,001원 이하 제외)</li><li>인터넷 회선이 있는 고객만 (모바일·유심 단판 제외) · 인터넷 여러 회선이면 회선별로 판정</li><li>일반 · 개통완료 건만 (추가/환수 · 해지/취소 · 업셀링 · 추가지급 · 0원 부가상품 제외)</li><li>편집 중 <b>제외</b> 버튼으로 사유 기재 후 수동 제외</li></ul></div></div>`;
   $('acol1').innerHTML=l;
   // 오른쪽
   let h='';
